@@ -4,8 +4,8 @@ import {
   closeStealthBrowser,
   type StealthBrowser,
 } from "./stealth.js";
-import { scrollToBottom } from "./scraper.js";
-import { parseHtml } from "./html-parser.js";
+import { scrollToBottom, fetchFaviconDataUri } from "./scraper.js";
+import { parseHtml, type Favicon } from "./html-parser.js";
 import { installSsrfGuard } from "./ssrf-guard.js";
 import { parseSitemap } from "./sitemap-parser.js";
 import { extractNavLinks } from "./nav-extractor.js";
@@ -32,7 +32,7 @@ export interface PageResult {
 
 export interface ScrapeSiteResult {
   pages: PageResult[];
-  faviconUrl: string | null;
+  favicon: Favicon;
   discoveryMethod: "sitemap" | "nav-links" | "homepage-only";
   totalPagesDiscovered: number;
   totalPagesScraped: number;
@@ -296,7 +296,7 @@ async function scrapePageInContext(
   context: import("playwright-ghost").BrowserContext,
   url: string,
   timeout: number
-): Promise<PageResult & { faviconUrl: string | null }> {
+): Promise<PageResult & { favicon: Favicon }> {
   const page = await context.newPage();
   const ssrf = installSsrfGuard(page);
   try {
@@ -323,7 +323,7 @@ async function scrapePageInContext(
       url,
       label: "", // Will be set by caller
       markdown: parsed.markdown,
-      faviconUrl: parsed.faviconUrl,
+      favicon: parsed.favicon,
     };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error));
@@ -331,7 +331,7 @@ async function scrapePageInContext(
       url,
       label: "",
       markdown: "",
-      faviconUrl: null,
+      favicon: { url: null, dataUri: null },
       error: err.message,
     };
   } finally {
@@ -408,13 +408,19 @@ export async function scrapeSite(
       markdown: homepageParsed.markdown,
     };
 
-    const faviconUrl = homepageParsed.faviconUrl;
+    // Fetch favicon as base64 data URI
+    const faviconDataUri = await fetchFaviconDataUri(
+      context,
+      homepageParsed.favicon.url,
+      url
+    );
+    const favicon: Favicon = { url: homepageParsed.favicon.url, dataUri: faviconDataUri };
 
     // If maxPages is 0, return homepage only
     if (options.maxPages <= 0) {
       return {
         pages: [homepageResult],
-        faviconUrl,
+        favicon,
         discoveryMethod: "homepage-only",
         totalPagesDiscovered: 0,
         totalPagesScraped: 1,
@@ -449,7 +455,7 @@ export async function scrapeSite(
     if (selectedPages.length === 0) {
       return {
         pages: [homepageResult],
-        faviconUrl,
+        favicon,
         discoveryMethod,
         totalPagesDiscovered: discoveredUrls.length,
         totalPagesScraped: 1,
