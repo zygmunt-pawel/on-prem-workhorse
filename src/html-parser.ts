@@ -22,6 +22,7 @@ export interface ParsedPage {
   cleanedHtml: string;
   rawHtml: string;
   favicon: Favicon;
+  heroScreenshot: string | null;
   contentHash: string;
 }
 
@@ -675,6 +676,7 @@ export function parseHtml(
     cleanedHtml,
     rawHtml: opts.includeRawHtml ? html : "",
     favicon: { url: faviconUrl, dataUri: null },
+    heroScreenshot: null,
     contentHash,
   };
 }

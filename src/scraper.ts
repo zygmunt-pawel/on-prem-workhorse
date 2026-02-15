@@ -38,8 +38,27 @@ export async function scrapePage(
       throw err;
     }
 
-    // Wait a bit for JS to render content
-    await page.waitForTimeout(2000);
+    // Wait for JS to render content and hero animations to complete
+    await page.waitForTimeout(3500);
+
+    // Try to dismiss cookie consent banners before screenshot
+    await dismissCookieBanner(page);
+
+    // Brief pause for late-appearing modals, then nuke any remaining overlays
+    await page.waitForTimeout(500);
+    await hideCookieOverlays(page);
+
+    // Nudge scroll: go down ~1 viewport then back to top.
+    // This triggers IntersectionObserver-based lazy loading for hero content
+    // (e.g. images, canvas, WebGL that only render when scrolled into view).
+    await page.evaluate("window.scrollBy(0, window.innerHeight)");
+    await page.waitForTimeout(200);
+    await page.evaluate("window.scrollTo({ top: 0, behavior: 'instant' })");
+    await page.waitForTimeout(300);
+
+    // Capture hero screenshot (viewport as-is, before scroll mutates the page)
+    const screenshotBuffer = await page.screenshot({ type: "jpeg", quality: 80 });
+    const heroScreenshot = `data:image/jpeg;base64,${screenshotBuffer.toString("base64")}`;
 
     // Scroll to bottom to trigger lazy-loaded content
     await scrollToBottom(page);
@@ -63,6 +82,7 @@ export async function scrapePage(
     return {
       ...result,
       favicon: { url: result.favicon.url, dataUri },
+      heroScreenshot,
     };
   } finally {
     await closeStealthBrowser(stealthBrowser);
@@ -127,6 +147,105 @@ export async function fetchFaviconDataUri(
 
   return null;
 }
+
+// ============ COOKIE BANNER DISMISS ============
+
+const COOKIE_BUTTON_SELECTORS = [
+  // Common consent libraries (OneTrust, CookieBot, CookieConsent, Osano, etc.)
+  "#onetrust-accept-btn-handler",
+  "#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll",
+  "[data-cky-tag='accept-button']",
+  ".cc-accept",
+  ".cc-dismiss",
+  ".cc-allow",
+  ".osano-cm-accept-all",
+  // Generic selectors by role/attribute
+  "[data-testid='cookie-accept']",
+  "[data-action='accept']",
+  // Text-based: common accept button labels (EN, PL, DE, FR, ES)
+  "button:has-text('Accept All')",
+  "button:has-text('Accept all')",
+  "button:has-text('Accept')",
+  "button:has-text('Allow all')",
+  "button:has-text('Allow All')",
+  "button:has-text('Agree')",
+  "button:has-text('I agree')",
+  "button:has-text('Got it')",
+  "button:has-text('OK')",
+  "button:has-text('Save settings')",
+  "button:has-text('Akceptuj')",
+  "button:has-text('Zgadzam')",
+  "button:has-text('Akzeptieren')",
+  "button:has-text('Tout accepter')",
+  "button:has-text('Aceptar')",
+  "a:has-text('Accept All')",
+  "a:has-text('Accept all')",
+  "a:has-text('Accept')",
+];
+
+async function dismissCookieBanner(page: import("playwright-ghost").Page): Promise<void> {
+  // Step 1: Try clicking common accept/dismiss buttons
+  for (const selector of COOKIE_BUTTON_SELECTORS) {
+    try {
+      const btn = page.locator(selector).first();
+      if (await btn.isVisible({ timeout: 100 })) {
+        await btn.click({ timeout: 400 });
+        await page.waitForTimeout(300);
+        return;
+      }
+    } catch {
+      // selector not found or not clickable, try next
+    }
+  }
+
+}
+
+/**
+ * Hides any remaining cookie/consent overlays via CSS injection.
+ * Catches late-appearing modals, fixed banners, and high-z-index overlays.
+ */
+async function hideCookieOverlays(page: import("playwright-ghost").Page): Promise<void> {
+  await page.evaluate(`(() => {
+    const keywords = ['cookie', 'consent', 'gdpr', 'privacy', 'data-collection', 'data collection'];
+    function textMatches(el) {
+      const text = (el.className + ' ' + el.id + ' ' + (el.textContent || '').substring(0, 300)).toLowerCase();
+      return keywords.some(kw => text.includes(kw));
+    }
+    // Dialogs and known cookie containers
+    document.querySelectorAll('[role="dialog"], [role="alertdialog"], [class*="modal"], [class*="overlay"], [id*="cookie"], [id*="consent"], [class*="cookie"], [class*="consent"]').forEach(el => {
+      if (textMatches(el)) el.style.display = 'none';
+    });
+    // Fixed/sticky banners with high z-index
+    document.querySelectorAll('div, aside, section').forEach(el => {
+      const style = getComputedStyle(el);
+      if ((style.position === 'fixed' || style.position === 'sticky') && parseInt(style.zIndex || '0') > 100) {
+        if (textMatches(el)) el.style.display = 'none';
+      }
+    });
+    // Backdrop overlays (semi-transparent or blurred full-screen divs)
+    document.querySelectorAll('div').forEach(el => {
+      const style = getComputedStyle(el);
+      if (style.position === 'fixed' && parseInt(style.zIndex || '0') > 50) {
+        const rect = el.getBoundingClientRect();
+        if (rect.width >= window.innerWidth * 0.9 && rect.height >= window.innerHeight * 0.9) {
+          el.style.display = 'none';
+        }
+      }
+    });
+    // Remove blur/opacity from main content that modals may have applied
+    document.querySelectorAll('*').forEach(el => {
+      const style = getComputedStyle(el);
+      if (style.filter && style.filter !== 'none' && style.filter.includes('blur')) {
+        el.style.filter = 'none';
+      }
+      if (style.backdropFilter && style.backdropFilter !== 'none') {
+        el.style.backdropFilter = 'none';
+      }
+    });
+  })()`);
+}
+
+// ============ SCROLL ============
 
 /**
  * Scrolls to the bottom of the page to trigger lazy-loaded content.
