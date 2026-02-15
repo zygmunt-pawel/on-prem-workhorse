@@ -492,7 +492,7 @@ export async function scrapeSite(
 
     return {
       pages: [homepageResult, ...dedupedSubpages],
-      faviconUrl,
+      favicon,
       discoveryMethod,
       totalPagesDiscovered: discoveredUrls.length,
       totalPagesScraped: 1 + dedupedSubpages.length,

@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import { scrapePage, ScrapeResult } from "./scraper.js";
 import { scrapeSite, ScrapeSiteResult } from "./site-crawler.js";
+import { fetchFavicon } from "./favicon.js";
+import type { Favicon } from "./html-parser.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const PROXY_URL = process.env.PROXY_URL || "";
@@ -165,6 +167,51 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
       });
 
       return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      const code = getErrorCode(err);
+      reply.status(getHttpStatus(code));
+      return { message: err.message, code };
+    }
+  }
+);
+
+// ============ /favicon endpoint ============
+
+interface FaviconBody {
+  url: string;
+}
+
+fastify.post<{ Body: FaviconBody; Reply: Favicon | ScraperError }>(
+  "/favicon",
+  {
+    schema: {
+      body: {
+        type: "object",
+        required: ["url"],
+        properties: {
+          url: { type: "string" },
+        },
+      },
+    },
+  },
+  async (request, reply) => {
+    const { url } = request.body;
+
+    if (!url || typeof url !== "string") {
+      reply.status(400);
+      return { message: "URL is required", code: "INVALID_REQUEST" };
+    }
+
+    try {
+      new URL(url);
+    } catch {
+      reply.status(400);
+      return { message: "Invalid URL format", code: "INVALID_URL" };
+    }
+
+    try {
+      return await fetchFavicon(url);
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       const code = getErrorCode(err);
