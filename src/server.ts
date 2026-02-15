@@ -28,6 +28,23 @@ function getErrorCode(error: Error): string {
   return "SCRAPE_ERROR";
 }
 
+/** Validates URL format and scheme. Returns error response or null if valid. */
+function validateUrl(url: unknown): ScraperError | null {
+  if (!url || typeof url !== "string") {
+    return { message: "URL is required", code: "INVALID_REQUEST" };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return { message: "Invalid URL format", code: "INVALID_URL" };
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    return { message: "Only http and https URLs are allowed", code: "INVALID_URL" };
+  }
+  return null;
+}
+
 function getHttpStatus(code: string): number {
   switch (code) {
     case "SSRF_BLOCKED":
@@ -75,21 +92,15 @@ fastify.post<{ Body: ScrapeBody; Reply: ScrapeResult | ScraperError }>(
   async (request, reply) => {
     const { url, timeout = 20000 } = request.body;
 
-    if (!url || typeof url !== "string") {
-      reply.status(400);
-      return { message: "URL is required", code: "INVALID_REQUEST" };
+    const urlError = validateUrl(url);
+    if (urlError) {
+      reply.status(getHttpStatus(urlError.code));
+      return urlError;
     }
 
     if (timeout <= 0) {
       reply.status(400);
       return { message: "Timeout must be a positive number", code: "INVALID_REQUEST" };
-    }
-
-    try {
-      new URL(url);
-    } catch {
-      reply.status(400);
-      return { message: "Invalid URL format", code: "INVALID_URL" };
     }
 
     try {
@@ -146,16 +157,10 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
       maxPages = 6,
     } = request.body;
 
-    if (!url || typeof url !== "string") {
-      reply.status(400);
-      return { message: "URL is required", code: "INVALID_REQUEST" };
-    }
-
-    try {
-      new URL(url);
-    } catch {
-      reply.status(400);
-      return { message: "Invalid URL format", code: "INVALID_URL" };
+    const urlError = validateUrl(url);
+    if (urlError) {
+      reply.status(getHttpStatus(urlError.code));
+      return urlError;
     }
 
     try {
@@ -198,16 +203,10 @@ fastify.post<{ Body: FaviconBody; Reply: Favicon | ScraperError }>(
   async (request, reply) => {
     const { url } = request.body;
 
-    if (!url || typeof url !== "string") {
-      reply.status(400);
-      return { message: "URL is required", code: "INVALID_REQUEST" };
-    }
-
-    try {
-      new URL(url);
-    } catch {
-      reply.status(400);
-      return { message: "Invalid URL format", code: "INVALID_URL" };
+    const urlError = validateUrl(url);
+    if (urlError) {
+      reply.status(getHttpStatus(urlError.code));
+      return urlError;
     }
 
     try {

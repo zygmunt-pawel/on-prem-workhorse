@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { validateUrlSsrf } from "./ssrf-guard.js";
 
 const SITEMAP_TIMEOUT = 5000; // 5s timeout for sitemap fetches
 const MAX_CHILD_SITEMAPS = 5; // Max child sitemaps to fetch from sitemap index
@@ -43,7 +44,8 @@ async function parseSitemapIndex(
   const childUrls: string[] = [];
   $("sitemapindex > sitemap > loc").each((_, el) => {
     const loc = $(el).text().trim();
-    if (loc) childUrls.push(loc);
+    // Only follow child sitemaps from the same origin
+    if (loc && isSameOrigin(loc, origin)) childUrls.push(loc);
   });
 
   // Smart selection: prioritize sitemaps likely to contain page URLs
@@ -95,19 +97,20 @@ function isSameOrigin(url: string, origin: string): boolean {
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), SITEMAP_TIMEOUT);
+    // Validate URL is not targeting private/internal IPs
+    await validateUrlSsrf(url);
 
     const response = await fetch(url, {
-      signal: controller.signal,
+      signal: AbortSignal.timeout(SITEMAP_TIMEOUT),
+      redirect: "manual",
       headers: {
         "User-Agent":
           "Mozilla/5.0 (compatible; SocialWatcher/1.0; +https://socialwatcher.app)",
       },
     });
 
-    clearTimeout(timeoutId);
-
+    // Don't follow redirects — they could target internal services
+    if (response.status >= 300 && response.status < 400) return null;
     if (!response.ok) return null;
 
     const contentType = response.headers.get("content-type") || "";

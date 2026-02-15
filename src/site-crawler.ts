@@ -499,7 +499,7 @@ export async function scrapeSite(
     };
   } finally {
     if (stealthBrowser) {
-      await closeStealthBrowser(stealthBrowser);
+      await closeStealthBrowser(stealthBrowser).catch(() => {});
     }
   }
 }

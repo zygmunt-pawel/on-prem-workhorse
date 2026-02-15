@@ -85,13 +85,14 @@ export async function scrapePage(
       heroScreenshot,
     };
   } finally {
-    await closeStealthBrowser(stealthBrowser);
+    await closeStealthBrowser(stealthBrowser).catch(() => {});
   }
 }
 
 // ============ FAVICON FETCHING ============
 
 const FAVICON_TIMEOUT = 5000;
+const MAX_FAVICON_SIZE = 1024 * 1024; // 1 MB
 
 async function tryFetchDataUri(
   context: BrowserContext,
@@ -103,10 +104,14 @@ async function tryFetchDataUri(
     if (!response.ok()) return null;
 
     const contentType = response.headers()["content-type"] || "image/x-icon";
-    const buffer = await response.body();
-    if (buffer.length === 0) return null;
+    const mimeType = contentType.split(";")[0].trim().toLowerCase();
 
-    const mimeType = contentType.split(";")[0].trim();
+    // Only accept image MIME types to prevent XSS via data:text/html URIs
+    if (!mimeType.startsWith("image/")) return null;
+
+    const buffer = await response.body();
+    if (buffer.length === 0 || buffer.length > MAX_FAVICON_SIZE) return null;
+
     return `data:${mimeType};base64,${buffer.toString("base64")}`;
   } catch {
     return null;

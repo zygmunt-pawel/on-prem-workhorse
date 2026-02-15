@@ -656,10 +656,10 @@ export function parseHtml(
     markdown = markdown.slice(0, MAX_MARKDOWN_LENGTH);
   }
 
-  // Generate cleaned HTML (reload original to avoid mutation issues)
+  // Generate cleaned HTML (reload truncated copy to avoid mutation issues)
   let cleanedHtml = "";
   if (opts.generateCleanedHtml) {
-    const $clean = cheerio.load(html);
+    const $clean = cheerio.load(truncatedHtml);
     cleanedHtml = cleanHtml($clean);
   }
 

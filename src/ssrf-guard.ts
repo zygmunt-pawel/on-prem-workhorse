@@ -7,9 +7,13 @@ import type { Page, Route } from "playwright-ghost";
  * Handles IPv4, IPv6, and IPv4-mapped IPv6 addresses.
  */
 export function isPrivateIp(ip: string): boolean {
-  // IPv4-mapped IPv6 (::ffff:X.X.X.X) — extract and re-check
-  if (ip.startsWith("::ffff:")) {
-    const mapped = ip.slice(7);
+  // IPv4-mapped IPv6 — extract the IPv4 part and re-check.
+  // Handles both compact (::ffff:X.X.X.X) and long form (0:0:0:0:0:ffff:X.X.X.X).
+  const v4MappedMatch = ip.match(
+    /^(?:::ffff:|0{1,4}(?::0{1,4}){4}:ffff:)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i
+  );
+  if (v4MappedMatch) {
+    const mapped = v4MappedMatch[1];
     if (isIPv4(mapped)) return isPrivateIp(mapped);
   }
 
@@ -33,7 +37,14 @@ export function isPrivateIp(ip: string): boolean {
       normalized === "::" ||                // IPv6 unspecified
       normalized.startsWith("fc") ||        // fc00::/7 (ULA) — fc00-fdff
       normalized.startsWith("fd") ||
-      normalized.startsWith("fe80")         // fe80::/10 link-local
+      normalized.startsWith("fe80") ||      // fe80::/10 link-local
+      normalized.startsWith("ff") ||        // ff00::/8 multicast
+      normalized.startsWith("2001:db8") ||  // 2001:db8::/32 documentation
+      normalized.startsWith("2001:0db8") || // 2001:db8::/32 zero-padded
+      normalized.startsWith("2001:0000:") ||// 2001:0000::/32 Teredo
+      normalized.startsWith("2001::") ||    // 2001::/32 Teredo (compact)
+      normalized.startsWith("100::") ||     // 100::/64 discard
+      normalized.startsWith("64:ff9b:1:")   // 64:ff9b:1::/48 NAT64 private
     );
   }
 
