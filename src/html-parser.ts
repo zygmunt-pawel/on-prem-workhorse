@@ -6,6 +6,11 @@ import { createHash } from "node:crypto";
 
 // ============ TYPES ============
 
+export interface Favicon {
+  url: string | null;
+  dataUri: string | null;
+}
+
 export interface ParsedPage {
   source: {
     inputUrl: string;
@@ -16,7 +21,7 @@ export interface ParsedPage {
   markdown: string;
   cleanedHtml: string;
   rawHtml: string;
-  faviconUrl: string | null;
+  favicon: Favicon;
   contentHash: string;
 }
 
@@ -669,7 +674,7 @@ export function parseHtml(
     markdown,
     cleanedHtml,
     rawHtml: opts.includeRawHtml ? html : "",
-    faviconUrl,
+    favicon: { url: faviconUrl, dataUri: null },
     contentHash,
   };
 }
