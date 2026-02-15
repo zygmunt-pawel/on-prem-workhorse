@@ -40,6 +40,46 @@ export function isPrivateIp(ip: string): boolean {
   return false;
 }
 
+/**
+ * Validates a URL is safe to fetch (not targeting private/reserved IPs).
+ * Standalone version for use outside Playwright (Node fetch, context.request, etc.).
+ * Throws on blocked URLs.
+ */
+export async function validateUrlSsrf(url: string): Promise<void> {
+  let hostname: string;
+  let scheme: string;
+  try {
+    const parsed = new URL(url);
+    hostname = parsed.hostname.replace(/^\[|\]$/g, "");
+    scheme = parsed.protocol.replace(":", "");
+  } catch {
+    throw new Error(`SSRF blocked: unparseable URL ${url}`);
+  }
+
+  if (scheme !== "http" && scheme !== "https") {
+    throw new Error(`SSRF blocked: non-http scheme "${scheme}" in ${url}`);
+  }
+
+  if (isIPv4(hostname) || isIPv6(hostname)) {
+    if (isPrivateIp(hostname)) {
+      throw new Error(`SSRF blocked: private IP ${hostname} in ${url}`);
+    }
+    return;
+  }
+
+  try {
+    const addresses = await dns.lookup(hostname, { all: true });
+    for (const entry of addresses) {
+      if (isPrivateIp(entry.address)) {
+        throw new Error(`SSRF blocked: ${hostname} resolved to private IP ${entry.address}`);
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("SSRF blocked:")) throw err;
+    throw new Error(`SSRF blocked: DNS resolution failed for ${hostname} in ${url}`);
+  }
+}
+
 export interface SsrfGuard {
   /** Set when a request is blocked — contains the reason. */
   readonly blocked: string | null;
