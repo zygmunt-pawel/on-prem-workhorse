@@ -4,3 +4,5 @@ dist/
 .env
 .DS_Store
 tests/
+test-results/
+test-saas-batch.sh

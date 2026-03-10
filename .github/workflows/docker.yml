@@ -1,0 +1,35 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/login@v2
+        with:
+          client-id: 6e05769f-7d01-45df-95f7-28722aeaaaee
+          tenant-id: 6f87e595-868a-4cee-b374-eb88d5f9bec0
+          subscription-id: f2c86b48-73d7-4be9-b109-7f815c13c2ff
+
+      - run: az acr login --name leadsrundevacr
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            leadsrundevacr.azurecr.io/scraper:latest
+            leadsrundevacr.azurecr.io/scraper:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

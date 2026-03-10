@@ -1,7 +1,21 @@
 # syntax=docker/dockerfile:1
+
+# ── Build stage ──────────────────────────────────────────────
+FROM node:22-slim AS build
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+COPY src ./src
+RUN npm run build
+
+# ── Production stage ─────────────────────────────────────────
 FROM node:22-slim
 
-# Install dependencies for Playwright Chromium
+# Playwright Chromium system dependencies
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libnspr4 \
@@ -23,31 +37,35 @@ RUN apt-get update && apt-get install -y \
     libxshmfence1 \
     fonts-liberation \
     fonts-noto-color-emoji \
+    dumb-init \
     --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
+# Non-root user for security
+RUN groupadd -r scraper && useradd -r -g scraper -m scraper
+
 WORKDIR /app
 
-# Copy package files
+# Production dependencies only
 COPY package*.json ./
+RUN npm ci --omit=dev
 
-# Install dependencies
-RUN npm ci
-
-# Install Playwright browsers (Chromium only)
+# Install Playwright Chromium browser
 RUN npx playwright install chromium
 
-# Copy source code
-COPY tsconfig.json ./
-COPY src ./src
+# Copy compiled JS from build stage
+COPY --from=build /app/dist ./dist
 
-# Build TypeScript
-RUN npm run build
+# Own everything by scraper user
+RUN chown -R scraper:scraper /app
 
-# Remove dev dependencies and source
-RUN npm prune --production && rm -rf src tsconfig.json
+USER scraper
 
 ENV PORT=3000
+ENV NODE_ENV=production
+
 EXPOSE 3000
 
+# dumb-init handles PID 1 and signal forwarding (graceful shutdown)
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "dist/server.js"]

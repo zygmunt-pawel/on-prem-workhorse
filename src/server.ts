@@ -6,6 +6,7 @@ import type { Favicon } from "./html-parser.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const PROXY_URL = process.env.PROXY_URL || "";
+const API_KEY = process.env.API_KEY || "";
 
 interface ScrapeBody {
   url: string;
@@ -70,6 +71,17 @@ function getHttpStatus(code: string): number {
 const fastify = Fastify({
   logger: true,
 });
+
+// API key auth — skip for /health so Azure probes work without credentials
+if (API_KEY) {
+  fastify.addHook("onRequest", async (request, reply) => {
+    if (request.url === "/health") return;
+    const provided = request.headers["x-api-key"];
+    if (provided !== API_KEY) {
+      reply.status(401).send({ message: "Unauthorized", code: "UNAUTHORIZED" });
+    }
+  });
+}
 
 fastify.get("/health", async () => {
   return { status: "ok", timestamp: new Date().toISOString() };

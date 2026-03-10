@@ -11,33 +11,51 @@ export function extractNavLinks(html: string, baseUrl: string): string[] {
   const seen = new Set<string>();
   const urls: string[] = [];
 
-  // Select links from navigation-related elements
-  const selectors = [
+  // Select links from navigation-related elements (priority order)
+  const primarySelectors = [
     "nav a[href]",
     "header a[href]",
     '[role="navigation"] a[href]',
   ];
 
-  for (const selector of selectors) {
-    $(selector).each((_, el) => {
-      const href = $(el).attr("href");
-      if (!href) return;
+  const fallbackSelectors = [
+    "footer a[href]",
+  ];
 
-      const resolved = resolveUrl(href, baseUrl);
-      if (!resolved) return;
+  const collect = (selectors: string[]) => {
+    for (const selector of selectors) {
+      $(selector).each((_, el) => {
+        const href = $(el).attr("href");
+        if (!href) return;
 
-      // Filter same-origin only
-      if (new URL(resolved).origin !== origin) return;
+        const resolved = resolveUrl(href, baseUrl);
+        if (!resolved) return;
 
-      // Normalize: remove trailing slash, hash, lowercase
-      const normalized = normalizeUrl(resolved);
-      if (!normalized) return;
+        // Filter same-origin only
+        if (new URL(resolved).origin !== origin) return;
 
-      if (!seen.has(normalized)) {
-        seen.add(normalized);
-        urls.push(normalized);
-      }
-    });
+        // Normalize: remove trailing slash, hash, lowercase
+        const normalized = normalizeUrl(resolved);
+        if (!normalized) return;
+
+        if (!seen.has(normalized)) {
+          seen.add(normalized);
+          urls.push(normalized);
+        }
+      });
+    }
+  };
+
+  collect(primarySelectors);
+
+  // If primary selectors found very few links, also check footer
+  if (urls.length < 5) {
+    collect(fallbackSelectors);
+  }
+
+  // Last resort: if still very few links, collect all same-origin <a href>
+  if (urls.length < 3) {
+    collect(["a[href]"]);
   }
 
   return urls;

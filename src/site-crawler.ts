@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   createStealthBrowser,
   closeStealthBrowser,
+  setupResourceBlocking,
   type StealthBrowser,
 } from "./stealth.js";
 import { scrollToBottom, fetchFaviconDataUri } from "./scraper.js";
@@ -131,10 +132,34 @@ const SKIP_EXTENSIONS = new Set([
 
 const LOCALE_PATTERN = /^[a-z]{2}(-[a-z]{2})?$/;
 
+/** Well-known non-English locale codes (ISO 639-1 + common combos) */
+const KNOWN_NON_EN_LOCALES = new Set([
+  "fr", "de", "es", "it", "pt", "nl", "pl", "cs", "uk", "ru",
+  "ja", "ko", "zh", "ar", "hi", "sv", "da", "no", "nb", "nn",
+  "fi", "tr", "he", "th", "vi", "id", "ms", "ro", "bg", "hr",
+  "sk", "sl", "et", "lt", "lv", "el", "hu", "ca", "eu", "gl",
+  "pt-br", "zh-cn", "zh-tw", "fr-fr", "de-de", "es-es", "it-it",
+  "pt-pt", "nl-nl", "fr-ca",
+]);
+
 function detectNonEnglishLocales(
   urls: string[],
   homepageUrl: string
 ): Set<string> | null {
+  // Check if homepage itself has a locale prefix
+  let homepageLocale: string | null = null;
+  try {
+    const homeSegments = new URL(homepageUrl).pathname
+      .split("/")
+      .filter((s) => s.length > 0);
+    if (homeSegments.length > 0 && LOCALE_PATTERN.test(homeSegments[0])) {
+      homepageLocale = homeSegments[0].toLowerCase();
+    }
+  } catch {
+    // ignore
+  }
+
+  // Collect all locale-like first segments from discovered URLs
   const firstSegments = new Set<string>();
   for (const url of urls) {
     try {
@@ -142,38 +167,44 @@ function detectNonEnglishLocales(
         .split("/")
         .filter((s) => s.length > 0);
       if (segments.length > 0 && LOCALE_PATTERN.test(segments[0])) {
-        firstSegments.add(segments[0]);
+        firstSegments.add(segments[0].toLowerCase());
       }
     } catch {
       continue;
     }
   }
-  // Also check homepage URL for locale prefix
-  try {
-    const homeSegments = new URL(homepageUrl).pathname
-      .split("/")
-      .filter((s) => s.length > 0);
-    if (homeSegments.length > 0 && LOCALE_PATTERN.test(homeSegments[0])) {
-      firstSegments.add(homeSegments[0]);
-    }
-  } catch {
-    // ignore
-  }
 
-  // Only filter if we see "en" — confirms site uses locale prefixes
+  if (firstSegments.size === 0) return null;
+
+  // Case 1: Explicit "en" prefix exists → filter all non-English locales
   const hasEnglish = [...firstSegments].some(
     (s) => s === "en" || s.startsWith("en-")
   );
-  if (!hasEnglish) return null;
+  if (hasEnglish) {
+    const nonEnglish = new Set<string>();
+    for (const seg of firstSegments) {
+      if (seg !== "en" && !seg.startsWith("en-")) {
+        nonEnglish.add(seg);
+      }
+    }
+    return nonEnglish.size > 0 ? nonEnglish : null;
+  }
 
-  // Return set of non-English locale prefixes to skip
-  const nonEnglish = new Set<string>();
-  for (const seg of firstSegments) {
-    if (seg !== "en" && !seg.startsWith("en-")) {
-      nonEnglish.add(seg);
+  // Case 2: Homepage has no locale prefix and we see 2+ known non-English
+  // locale segments → site serves English at root, translations under /fr/ etc.
+  if (!homepageLocale) {
+    const knownLocales = new Set<string>();
+    for (const seg of firstSegments) {
+      if (KNOWN_NON_EN_LOCALES.has(seg)) {
+        knownLocales.add(seg);
+      }
+    }
+    if (knownLocales.size >= 2) {
+      return knownLocales;
     }
   }
-  return nonEnglish.size > 0 ? nonEnglish : null;
+
+  return null;
 }
 
 interface ScoredPage {
@@ -255,7 +286,40 @@ function scoreAndSelectPages(
     return a.url.length - b.url.length;
   });
 
-  return scored.slice(0, maxPages);
+  // Diversity filter: max 2 pages per first path segment to prevent
+  // e.g. /features/* or /pricing/* from consuming all slots
+  const MAX_PER_PREFIX = 2;
+  const prefixCounts = new Map<string, number>();
+  const diverse: ScoredPage[] = [];
+  const overflow: ScoredPage[] = [];
+
+  for (const page of scored) {
+    const prefix = getFirstSegment(page.url);
+    const count = prefixCounts.get(prefix) || 0;
+    if (count < MAX_PER_PREFIX) {
+      diverse.push(page);
+      prefixCounts.set(prefix, count + 1);
+    } else {
+      overflow.push(page);
+    }
+  }
+
+  // Fill remaining slots from overflow if diverse doesn't have enough
+  const result = diverse.slice(0, maxPages);
+  if (result.length < maxPages) {
+    result.push(...overflow.slice(0, maxPages - result.length));
+  }
+
+  return result;
+}
+
+function getFirstSegment(url: string): string {
+  try {
+    const segments = new URL(url).pathname.split("/").filter((s) => s.length > 0);
+    return (segments[0] || "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function generateLabel(segments: string[]): string {
@@ -383,6 +447,10 @@ export async function scrapeSite(
       proxyUrl: options.proxyUrl,
     });
     const { context, page: homePage } = stealthBrowser;
+
+    // Block heavy resources (images, fonts, media) — site crawler only needs HTML
+    await setupResourceBlocking(context);
+
     const ssrf = installSsrfGuard(homePage);
 
     // Step 1: Scrape homepage
