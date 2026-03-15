@@ -194,8 +194,28 @@ function preprocessForMarkdown($: cheerio.CheerioAPI): void {
   // Remove form inputs and their labels - they don't provide meaningful content
   $("input, textarea, label").remove();
 
-  // Remove hidden elements
-  $('[hidden], [style*="display: none"], [style*="display:none"], [style*="visibility: hidden"], [style*="visibility:hidden"]').remove();
+  // Remove hidden elements (inline styles + common hidden CSS classes)
+  $([
+    '[hidden]',
+    '[style*="display: none"]',
+    '[style*="display:none"]',
+    '[style*="visibility: hidden"]',
+    '[style*="visibility:hidden"]',
+    '[style*="opacity: 0"]',
+    '[style*="opacity:0"]',
+    '[style*="clip: rect(0"]',
+    '[style*="clip:rect(0"]',
+    '[style*="clip-path: inset(100%)"]',
+    '[style*="clip-path:inset(100%)"]',
+    '[style*="overflow: hidden"][style*="height: 0"]',
+    '[style*="overflow:hidden"][style*="height:0"]',
+    '.hidden',
+    '.sr-only',
+    '.visually-hidden',
+    '.screen-reader-text',
+    '.invisible',
+    '.d-none',
+  ].join(', ')).remove();
 
   // Remove aria-hidden="true" only on likely-decorative elements (icons, small spans)
   // Avoid removing larger containers that may have visible content

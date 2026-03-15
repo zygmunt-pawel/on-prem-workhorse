@@ -66,6 +66,10 @@ export async function scrapePage(
     // Small delay to let any final content render
     await page.waitForTimeout(500);
 
+    // Remove elements that are visually hidden (computed styles)
+    // This catches CSS-class-based hiding, external stylesheets, etc.
+    await removeHiddenElements(page);
+
     // Get the full HTML content
     const rawHtml = await page.content();
 
@@ -247,6 +251,53 @@ async function hideCookieOverlays(page: import("playwright-ghost").Page): Promis
         el.style.backdropFilter = 'none';
       }
     });
+  })()`);
+}
+
+// ============ REMOVE HIDDEN ELEMENTS ============
+
+/**
+ * Removes elements that are visually hidden via computed styles.
+ * Uses the browser's computed style resolution to catch hiding via
+ * CSS classes, external stylesheets, media queries, etc.
+ */
+async function removeHiddenElements(page: import("playwright-ghost").Page): Promise<void> {
+  await page.evaluate(`(() => {
+    const keep = new Set(['HTML', 'HEAD', 'BODY', 'SCRIPT', 'STYLE', 'LINK', 'META', 'TITLE', 'NOSCRIPT']);
+    const els = document.body.querySelectorAll('*');
+    const toRemove = [];
+
+    for (const el of els) {
+      if (keep.has(el.tagName)) continue;
+
+      const cs = getComputedStyle(el);
+
+      // display:none — element and descendants are invisible
+      if (cs.display === 'none') { toRemove.push(el); continue; }
+
+      // visibility:hidden with no visible children
+      if (cs.visibility === 'hidden') {
+        const hasVisibleChild = el.querySelector('*') &&
+          [...el.querySelectorAll('*')].some(c => getComputedStyle(c).visibility === 'visible');
+        if (!hasVisibleChild) { toRemove.push(el); continue; }
+      }
+
+      // opacity:0 — fully transparent (skip tiny spacer elements)
+      if (cs.opacity === '0' && el.textContent && el.textContent.trim().length > 0) {
+        toRemove.push(el); continue;
+      }
+
+      // Clipped to zero rect (screen-reader-only patterns: clip, clip-path, width/height 0+overflow)
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0 && cs.overflow === 'hidden') {
+        toRemove.push(el); continue;
+      }
+    }
+
+    // Remove bottom-up so child removals don't break parent iteration
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+      toRemove[i].remove();
+    }
   })()`);
 }
 
