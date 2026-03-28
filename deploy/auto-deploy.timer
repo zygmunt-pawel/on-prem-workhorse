@@ -2,8 +2,8 @@
 Description=Poll GitHub for on-prem-workhorse changes every 5 minutes
 
 [Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
+OnBootSec=30s
+OnUnitActiveSec=30s
 Persistent=true
 
 [Install]
