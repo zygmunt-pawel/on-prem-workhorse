@@ -27,6 +27,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/ik_llama.cpp/build/bin/llama-server /usr/local/bin/llama-server
+RUN --mount=from=builder,source=/build/ik_llama.cpp/build,target=/tmp/build \
+    find /tmp/build -name '*.so' -exec cp {} /usr/local/lib/ \; && ldconfig
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 8090
