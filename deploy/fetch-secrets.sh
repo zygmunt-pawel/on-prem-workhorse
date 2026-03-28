@@ -16,4 +16,4 @@ export CLOUDFLARE_TUNNEL_TOKEN=$(az keyvault secret show --vault-name "$VAULT_NA
 export ACR_TOKEN=$(az keyvault secret show --vault-name "$VAULT_NAME" --name "$SECRET_ACR_TOKEN" --query value -o tsv)
 
 cd "$(dirname "$0")/.."
-exec docker compose up -d --build
+exec docker compose up -d --build --force-recreate
