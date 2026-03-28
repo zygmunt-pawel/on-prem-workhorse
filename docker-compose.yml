@@ -1,9 +1,7 @@
-env_file:
-  - config.env
-
 services:
   scraper:
-    image: ${ACR_LOGIN_SERVER}/on-prem-workhorse:latest
+    build: .
+    image: on-prem-workhorse:latest
     container_name: scraper
     restart: unless-stopped
     ports:
