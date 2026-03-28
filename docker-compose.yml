@@ -42,17 +42,17 @@ services:
       - -fa
       - "1"
       - -c
-      - "131072"
+      - "262144"
       - -ctk
-      - q6_0
+      - q8_0
       - -ctv
-      - q6_0
+      - q8_0
       - --host
       - "0.0.0.0"
       - --port
       - "8090"
       - -np
-      - "2"
+      - "4"
       - --api-key
       - ${API_KEY}
     healthcheck:
