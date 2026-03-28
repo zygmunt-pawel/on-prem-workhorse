@@ -1,0 +1,7 @@
+[Unit]
+Description=Auto-deploy on-prem-workhorse from GitHub
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/pawel/on-prem-workhorse
+ExecStart=/bin/bash /home/pawel/on-prem-workhorse/deploy/auto-deploy.sh
