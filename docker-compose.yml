@@ -42,7 +42,7 @@ services:
       - -fa
       - "1"
       - -c
-      - "262144"
+      - "131072"
       - -ctk
       - q8_0
       - -ctv
@@ -52,7 +52,7 @@ services:
       - --port
       - "8090"
       - -np
-      - "4"
+      - "2"
       - --api-key
       - ${API_KEY}
     healthcheck:
