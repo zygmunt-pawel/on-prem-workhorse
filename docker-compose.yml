@@ -58,7 +58,7 @@ services:
       - -np
       - "4"
       - --api-key
-      - ${API_KEY:-296abab86b8895c60170be4592d1575a1e9b3c7e201077a7}
+      - ${API_KEY}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8090/health"]
       interval: 30s
