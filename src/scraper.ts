@@ -197,8 +197,8 @@ async function dismissCookieBanner(page: import("playwright-ghost").Page): Promi
   for (const selector of COOKIE_BUTTON_SELECTORS) {
     try {
       const btn = page.locator(selector).first();
-      if (await btn.isVisible({ timeout: 100 })) {
-        await btn.click({ timeout: 400 });
+      if (await btn.isVisible({ timeout: 300 })) {
+        await btn.click({ timeout: 800 });
         await page.waitForTimeout(300);
         return;
       }

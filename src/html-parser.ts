@@ -239,6 +239,9 @@ function preprocessForMarkdown($: cheerio.CheerioAPI): void {
   // Remove all nav elements - navigation adds noise for LLM consumption
   $("nav").remove();
 
+  // Remove cookie consent / GDPR banners and cookie declaration tables
+  $('[id*="cookie" i], [id*="consent" i], [id*="Cookiebot" i], [class*="cookie-consent" i], [class*="cookieconsent" i], [class*="cookie-banner" i], [class*="cookie-declaration" i], [id*="CookieDeclaration"], [id*="onetrust"], [class*="onetrust"]').remove();
+
   // Remove comments
   $("*")
     .contents()
