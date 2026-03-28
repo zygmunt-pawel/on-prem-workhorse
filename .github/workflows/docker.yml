@@ -33,3 +33,16 @@ jobs:
             leadsrundevacr.azurecr.io/on-prem-workhorse:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Deploy to on-prem
+        run: |
+          az rest --method PUT \
+            --url "https://management.azure.com/subscriptions/f2c86b48-73d7-4be9-b109-7f815c13c2ff/resourceGroups/rg-leads-run-dev/providers/Microsoft.HybridCompute/machines/classifier-gpu/runCommands/deploy?api-version=2024-07-10" \
+            --body '{
+              "location": "eastus2",
+              "properties": {
+                "source": {
+                  "script": "docker compose -f /home/pawel/on-prem-workhorse/docker-compose.yml pull scraper && docker compose -f /home/pawel/on-prem-workhorse/docker-compose.yml up -d scraper"
+                }
+              }
+            }'

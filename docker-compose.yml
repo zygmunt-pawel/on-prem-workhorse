@@ -3,9 +3,7 @@ env_file:
 
 services:
   scraper:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${ACR_LOGIN_SERVER}/on-prem-workhorse:latest
     container_name: scraper
     restart: unless-stopped
     ports:
