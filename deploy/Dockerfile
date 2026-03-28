@@ -17,6 +17,7 @@ RUN cmake -B build \
     -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH} \
     -DCMAKE_BUILD_TYPE=Release \
     -DLLAMA_CURL=OFF \
+    -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/cuda/lib64/stubs -lcuda" \
     && cmake --build build --target llama-server -j$(nproc)
 
 FROM nvidia/cuda:13.2.0-runtime-ubuntu24.04
