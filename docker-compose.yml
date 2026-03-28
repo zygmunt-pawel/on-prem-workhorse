@@ -1,0 +1,85 @@
+env_file:
+  - config.env
+
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scraper
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - API_KEY=${SCRAPER_API_KEY}
+      - PROXY_URL=${PROXY_URL:-}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  ik-llama:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile
+      args:
+        CUDA_ARCH: "120"
+    container_name: ik-llama
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - MODEL_PATH=/models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
+      - HF_MODEL_URL=${HF_MODEL_URL}
+    volumes:
+      - ${MODEL_DIR}:/models
+    ports:
+      - "8090:8090"
+    command:
+      - -m
+      - /models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
+      - -ngl
+      - "999"
+      - -fa
+      - "1"
+      - -c
+      - "262144"
+      - -ctk
+      - q8_0
+      - -ctv
+      - q8_0
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8090"
+      - -np
+      - "4"
+      - --api-key
+      - ${API_KEY:-296abab86b8895c60170be4592d1575a1e9b3c7e201077a7}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared
+    restart: unless-stopped
+    depends_on:
+      ik-llama:
+        condition: service_healthy
+    command:
+      - tunnel
+      - run
+      - --token
+      - ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_URL=http://ik-llama:8090
+
+volumes:
+  models_data:
