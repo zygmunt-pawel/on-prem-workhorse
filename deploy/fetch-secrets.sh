@@ -1,8 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-SCRIPT_DIR="$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+set -a
 source "$SCRIPT_DIR/../config.env"
+set +a
 
 az login --identity --allow-no-subscriptions > /dev/null 2>&1
 
