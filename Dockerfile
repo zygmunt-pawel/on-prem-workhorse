@@ -50,7 +50,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# Install Playwright Chromium browser
+# Install Playwright Chromium browser to a shared path accessible by all users
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN npx playwright install chromium
 
 # Copy compiled JS from build stage
