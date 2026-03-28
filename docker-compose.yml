@@ -52,7 +52,7 @@ services:
       - --port
       - "8090"
       - -np
-      - "4"
+      - "3"
       - --api-key
       - ${API_KEY}
     healthcheck:
