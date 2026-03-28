@@ -1,0 +1,85 @@
+@host = https://model.leads.run
+@apiKey = {{$dotenv LLM_API_KEY}}
+
+### Health
+GET {{host}}/health
+
+### Models
+GET {{host}}/v1/models
+Authorization: Bearer {{apiKey}}
+
+### Thinking — General
+# temp=1.0, top_p=0.95, top_k=20, presence_penalty=1.5
+POST {{host}}/v1/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{apiKey}}
+
+{
+  "model": "qwen",
+  "messages": [
+    {"role": "user", "content": "Powiedz mi żart o programiście"}
+  ],
+  "max_tokens": 32768,
+  "temperature": 1.0,
+  "top_p": 0.95,
+  "top_k": 20,
+  "presence_penalty": 1.5
+}
+
+### Thinking — Precise Coding
+# temp=0.6, top_p=0.95, top_k=20, presence_penalty=0.0
+POST {{host}}/v1/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{apiKey}}
+
+{
+  "model": "qwen",
+  "messages": [
+    {"role": "user", "content": "Write a Python function that finds all prime numbers up to N using Sieve of Eratosthenes"}
+  ],
+  "max_tokens": 32768,
+  "temperature": 0.6,
+  "top_p": 0.95,
+  "top_k": 20,
+  "presence_penalty": 0.0
+}
+
+### Non-Thinking — General
+# temp=0.7, top_p=0.8, top_k=20, presence_penalty=1.5
+# logit_bias bans <think> token (ID 248068) to reliably disable thinking
+POST {{host}}/v1/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{apiKey}}
+
+{
+  "model": "qwen",
+  "messages": [
+    {"role": "user", "content": "Co to jest Cloudflare Tunnel?"}
+  ],
+  "max_tokens": 32768,
+  "temperature": 0.7,
+  "top_p": 0.8,
+  "top_k": 20,
+  "presence_penalty": 1.5,
+  "logit_bias": {"248068": -100.0}
+}
+
+### Non-Thinking — Reasoning
+# temp=1.0, top_p=1.0, top_k=40, presence_penalty=2.0
+# logit_bias bans <think> token (ID 248068) to reliably disable thinking
+POST {{host}}/v1/chat/completions
+Content-Type: application/json
+Authorization: Bearer {{apiKey}}
+
+{
+  "model": "qwen",
+  "messages": [
+    {"role": "user", "content": "How many r's in strawberries?"}
+  ],
+  "max_tokens": 32768,
+  "temperature": 1.0,
+  "top_p": 1.0,
+  "top_k": 40,
+  "presence_penalty": 2.0,
+  "logit_bias": {"248068": -100.0}
+}

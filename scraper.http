@@ -1,0 +1,26 @@
+@host = https://fetch.leads.run
+@apiKey = {{$dotenv SCRAPER_API_KEY}}
+
+### Health
+GET {{host}}/health
+
+### Single Page Scrape
+POST {{host}}/scrape
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "url": "https://example.com",
+  "timeout": 20000
+}
+
+### Site Crawl
+POST {{host}}/scrape-site
+Content-Type: application/json
+X-Api-Key: {{apiKey}}
+
+{
+  "url": "https://example.com",
+  "timeout": 120000,
+  "maxPages": 6
+}
