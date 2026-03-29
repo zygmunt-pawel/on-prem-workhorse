@@ -57,7 +57,7 @@ const DEFAULT_PARSER_OPTIONS: ParserOptions = {
 
 // Size limits to prevent OOM and excessive OpenAI token usage
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_MARKDOWN_LENGTH = 15_000; // 15k characters per page
+const MAX_MARKDOWN_LENGTH = 20_000; // 20k characters per page
 
 // Tags to completely remove (including their content)
 const TAGS_TO_REMOVE = ["script", "style", "noscript", "iframe", "svg", "canvas", "template"];
