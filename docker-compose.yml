@@ -28,7 +28,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - MODEL_PATH=/models/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf
+      - MODEL_PATH=/models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
       - HF_MODEL_URL=${HF_MODEL_URL}
     volumes:
       - ${MODEL_DIR}:/models
@@ -36,7 +36,7 @@ services:
       - "8090:8090"
     command:
       - -m
-      - /models/Qwen3.5-35B-A3B-GGUF/Qwen3.5-35B-A3B-Q4_K_M.gguf
+      - /models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
       - -ngl
       - "999"
       - -fa
