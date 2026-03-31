@@ -69,6 +69,42 @@ services:
       retries: 3
       start_period: 120s
 
+  embeddings:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: embeddings
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - ${MODEL_DIR}:/models:ro
+    ports:
+      - "8091:8091"
+    command:
+      - --model
+      - /models/gte-Qwen2-7B-instruct-GGUF/gte-Qwen2-7B-instruct-Q5_K_M.gguf
+      - --embedding
+      - --pooling
+      - cls
+      - -ngl
+      - "999"
+      - -c
+      - "8192"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8091"
+      - -np
+      - "4"
+      - --api-key
+      - ${API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
