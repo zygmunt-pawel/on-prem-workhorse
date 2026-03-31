@@ -85,7 +85,7 @@ services:
       - /models/gte-Qwen2-7B-instruct-GGUF/gte-Qwen2-7B-instruct-Q5_K_M.gguf
       - --embedding
       - --pooling
-      - cls
+      - last
       - -ngl
       - "999"
       - -c
