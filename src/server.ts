@@ -11,6 +11,7 @@ const API_KEY = process.env.API_KEY || "";
 interface ScrapeBody {
   url: string;
   timeout?: number;
+  maxChars?: number | null;
 }
 
 interface ScraperError {
@@ -97,12 +98,13 @@ fastify.post<{ Body: ScrapeBody; Reply: ScrapeResult | ScraperError }>(
         properties: {
           url: { type: "string" },
           timeout: { type: "number", default: 20000 },
+          maxChars: { type: ["number", "null"], default: 20000 },
         },
       },
     },
   },
   async (request, reply) => {
-    const { url, timeout = 20000 } = request.body;
+    const { url, timeout = 20000, maxChars = 20000 } = request.body;
 
     const urlError = validateUrl(url);
     if (urlError) {
@@ -119,6 +121,7 @@ fastify.post<{ Body: ScrapeBody; Reply: ScrapeResult | ScraperError }>(
       const result = await scrapePage(url, {
         timeout,
         proxyUrl: PROXY_URL || undefined,
+        maxChars,
       });
 
       if (!result.markdown.trim()) {
@@ -143,6 +146,7 @@ interface ScrapeSiteBody {
   timeout?: number;
   pageTimeout?: number;
   maxPages?: number;
+  maxChars?: number | null;
 }
 
 fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
@@ -157,6 +161,7 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
           timeout: { type: "number", default: 120000 },
           pageTimeout: { type: "number", default: 15000 },
           maxPages: { type: "number", default: 6 },
+          maxChars: { type: ["number", "null"], default: 20000 },
         },
       },
     },
@@ -167,6 +172,7 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
       timeout = 120000,
       pageTimeout = 15000,
       maxPages = 6,
+      maxChars = 20000,
     } = request.body;
 
     const urlError = validateUrl(url);
@@ -181,6 +187,7 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
         pageTimeout,
         maxPages,
         proxyUrl: PROXY_URL || undefined,
+        maxChars,
       });
 
       return result;

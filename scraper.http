@@ -11,7 +11,8 @@ X-Api-Key: {{apiKey}}
 
 {
   "url": "https://example.com",
-  "timeout": 20000
+  "timeout": 20000,
+  "maxChars": 20000
 }
 
 ### Site Crawl
@@ -22,5 +23,6 @@ X-Api-Key: {{apiKey}}
 {
   "url": "https://example.com",
   "timeout": 120000,
-  "maxPages": 6
+  "maxPages": 6,
+  "maxChars": 20000
 }

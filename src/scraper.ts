@@ -6,6 +6,7 @@ import { installSsrfGuard, validateUrlSsrf } from "./ssrf-guard.js";
 export interface ScrapeOptions {
   timeout: number;
   proxyUrl?: string;
+  maxChars?: number | null;
 }
 
 export type ScrapeResult = ParsedPage;
@@ -74,7 +75,8 @@ export async function scrapePage(
     const rawHtml = await page.content();
 
     // Parse HTML into structured data
-    const result = parseHtml(rawHtml, url);
+    const parserOpts = options.maxChars !== undefined ? { maxChars: options.maxChars } : {};
+    const result = parseHtml(rawHtml, url, parserOpts);
 
     // Fetch favicon as base64 data URI
     const dataUri = await fetchFaviconDataUri(

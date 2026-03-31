@@ -41,6 +41,8 @@ export interface ParserOptions {
   generateCleanedHtml: boolean;
   /** Include raw HTML in output (set false to skip for performance) */
   includeRawHtml: boolean;
+  /** Max markdown characters (null = no limit, default 20000) */
+  maxChars: number | null;
 }
 
 const DEFAULT_PARSER_OPTIONS: ParserOptions = {
@@ -51,13 +53,13 @@ const DEFAULT_PARSER_OPTIONS: ParserOptions = {
   listItemMinLength: 3,
   generateCleanedHtml: true,
   includeRawHtml: true,
+  maxChars: 20_000,
 };
 
 // ============ CONSTANTS ============
 
 // Size limits to prevent OOM and excessive OpenAI token usage
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5MB
-const MAX_MARKDOWN_LENGTH = 20_000; // 20k characters per page
 
 // Tags to completely remove (including their content)
 const TAGS_TO_REMOVE = ["script", "style", "noscript", "iframe", "svg", "canvas", "template"];
@@ -674,9 +676,9 @@ export function parseHtml(
   // Post-process markdown
   markdown = postprocessMarkdown(markdown);
 
-  // Truncate oversized markdown to prevent excessive OpenAI token usage
-  if (markdown.length > MAX_MARKDOWN_LENGTH) {
-    markdown = markdown.slice(0, MAX_MARKDOWN_LENGTH);
+  // Truncate oversized markdown to prevent excessive token usage
+  if (opts.maxChars !== null && markdown.length > opts.maxChars) {
+    markdown = markdown.slice(0, opts.maxChars);
   }
 
   // Generate cleaned HTML (reload truncated copy to avoid mutation issues)

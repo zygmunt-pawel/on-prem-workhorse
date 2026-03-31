@@ -22,6 +22,8 @@ export interface ScrapeSiteOptions {
   maxPages: number;
   /** Optional proxy URL */
   proxyUrl?: string;
+  /** Max markdown characters per page (null = no limit) */
+  maxChars?: number | null;
 }
 
 export interface PageResult {
@@ -359,7 +361,8 @@ const CONCURRENCY = 3;
 async function scrapePageInContext(
   context: import("playwright-ghost").BrowserContext,
   url: string,
-  timeout: number
+  timeout: number,
+  maxChars?: number | null
 ): Promise<PageResult & { favicon: Favicon }> {
   const page = await context.newPage();
   const ssrf = installSsrfGuard(page);
@@ -381,6 +384,7 @@ async function scrapePageInContext(
     const parsed = parseHtml(rawHtml, url, {
       generateCleanedHtml: false,
       includeRawHtml: false,
+      ...(maxChars !== undefined && { maxChars }),
     });
 
     return {
@@ -406,7 +410,8 @@ async function scrapePageInContext(
 async function scrapeInBatches(
   context: import("playwright-ghost").BrowserContext,
   pages: ScoredPage[],
-  pageTimeout: number
+  pageTimeout: number,
+  maxChars?: number | null
 ): Promise<PageResult[]> {
   const results: PageResult[] = [];
 
@@ -417,7 +422,8 @@ async function scrapeInBatches(
         const result = await scrapePageInContext(
           context,
           scoredPage.url,
-          pageTimeout
+          pageTimeout,
+          maxChars
         );
         return {
           url: result.url,
@@ -468,7 +474,9 @@ export async function scrapeSite(
     await homePage.waitForTimeout(500);
 
     const homepageHtml = await homePage.content();
-    const homepageParsed = parseHtml(homepageHtml, url);
+    const homepageParsed = parseHtml(homepageHtml, url, {
+      ...(options.maxChars !== undefined && { maxChars: options.maxChars }),
+    });
 
     const homepageResult: PageResult = {
       url,
@@ -534,7 +542,8 @@ export async function scrapeSite(
     const subpageResults = await scrapeInBatches(
       context,
       selectedPages,
-      options.pageTimeout
+      options.pageTimeout,
+      options.maxChars
     );
 
     // Filter out pages with errors or empty markdown
