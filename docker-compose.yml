@@ -96,7 +96,7 @@ services:
       - "8091"
       - -np
       - "2"
-      - --conn-timeout
+      - --timeout
       - "15"
       - --api-key
       - ${API_KEY}
