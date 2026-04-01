@@ -70,9 +70,12 @@ services:
       start_period: 120s
 
   embeddings:
-    image: ghcr.io/ggml-org/llama.cpp:server
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
     container_name: embeddings
     restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - ${MODEL_DIR}:/models:ro
     ports:
@@ -84,7 +87,7 @@ services:
       - --pooling
       - last
       - -ngl
-      - "0"
+      - "14"
       - -c
       - "8192"
       - --host
