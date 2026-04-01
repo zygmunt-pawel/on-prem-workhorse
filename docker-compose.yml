@@ -42,7 +42,7 @@ services:
       - -fa
       - "1"
       - -c
-      - "200000"
+      - "262144"
       - -ctk
       - q8_0
       - -ctv
@@ -60,6 +60,8 @@ services:
       - --ctx-checkpoints-interval
       - "0"
       - --mlock
+      - -cram
+      - "0"
       - --api-key
       - ${API_KEY}
     healthcheck:
@@ -98,6 +100,8 @@ services:
       - "2"
       - --timeout
       - "15"
+      - -cram
+      - "0"
       - --api-key
       - ${API_KEY}
     healthcheck:
