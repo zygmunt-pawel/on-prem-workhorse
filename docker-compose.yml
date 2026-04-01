@@ -95,7 +95,9 @@ services:
       - --port
       - "8091"
       - -np
-      - "4"
+      - "2"
+      - --conn-timeout
+      - "30"
       - --api-key
       - ${API_KEY}
     healthcheck:
