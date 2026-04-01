@@ -42,7 +42,7 @@ services:
       - -fa
       - "1"
       - -c
-      - "262144"
+      - "131072"
       - -ctk
       - q8_0
       - -ctv
@@ -87,7 +87,7 @@ services:
       - --pooling
       - last
       - -ngl
-      - "20"
+      - "999"
       - -c
       - "8192"
       - --host
