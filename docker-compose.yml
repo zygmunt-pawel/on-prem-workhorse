@@ -97,7 +97,7 @@ services:
       - -np
       - "2"
       - --conn-timeout
-      - "30"
+      - "15"
       - --api-key
       - ${API_KEY}
     healthcheck:
