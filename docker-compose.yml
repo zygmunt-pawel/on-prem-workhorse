@@ -20,6 +20,7 @@ services:
   # Gemma 4 31B (Unsloth UD-Q6_K_XL) via official llama.cpp
   # Built with CUDA 13.0 + sm_89 PTX fallback (native sm_120 has nvcc O3 bug)
   # ~45 t/s generation, ~80 t/s concurrent (2 slots), 128k total context (64k per slot)
+  # NOTE: service name kept as "ik-llama" to match Cloudflare tunnel routing config
   ik-llama:
     build:
       context: ./deploy
