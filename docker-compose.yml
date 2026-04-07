@@ -46,7 +46,7 @@ services:
       - -fa
       - "1"         # flash attention (~2x prompt speed)
       - -c
-      - "131072"    # 128k context total (64k per slot with -np 2)
+      - "131072"    # 128k context, single slot
       - -ctk
       - q4_0        # KV cache 4-bit — saves ~3 GB VRAM vs q8_0
       - -ctv
@@ -56,7 +56,7 @@ services:
       - --port
       - "8090"
       - -np
-      - "2"         # 2 concurrent request slots
+      - "1"         # single slot — full 128k context for one request
       - --spec-type
       - ngram-simple # n-gram speculative decoding (free speedup on repetitive text)
       - --draft-max
