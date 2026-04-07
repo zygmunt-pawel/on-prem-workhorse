@@ -83,6 +83,20 @@ const SKIP_PATTERNS: string[] = [
   "privacy",
   "terms",
   "cookie",
+  "tos",
+  "gdpr",
+  "imprint",
+  "impressum",
+  "disclaimer",
+  "aup",
+  "acceptable-use",
+  "dmca",
+  "eula",
+  "data-processing",
+  "dpa",
+  "sla",
+  "refund",
+  "accessibility",
   "login",
   "signin",
   "signup",
@@ -252,10 +266,12 @@ function scoreAndSelectPages(
       .filter((s) => s.length > 0);
     if (segments.length > 4) continue;
 
-    // Check skip patterns using full path segment matching
-    // (avoids false positives like "app" matching "apple-integration")
+    // Check skip patterns — exact match OR segment starts with pattern + separator
+    // e.g. "privacy" matches "privacy", "privacy-policy"; but "app" won't match "apple"
     const lowerSegments = segments.map((s) => s.toLowerCase());
-    const shouldSkip = lowerSegments.some((s) => SKIP_PATTERNS.includes(s));
+    const shouldSkip = lowerSegments.some((seg) =>
+      SKIP_PATTERNS.some((pat) => seg === pat || seg.startsWith(pat + "-") || seg.startsWith(pat + "_"))
+    );
     if (shouldSkip) continue;
 
     // Skip non-English locale pages
