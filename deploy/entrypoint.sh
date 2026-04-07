@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-MODEL_PATH="${MODEL_PATH:-/models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf}"
-HF_MODEL_URL="${HF_MODEL_URL:-https://huggingface.co/Pawellll/Qwen3.5-27B-IQ4_KS-GGUF/resolve/main/Qwen3.5-27B-IQ4_KS.gguf}"
+MODEL_PATH="${MODEL_PATH:-/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf}"
+HF_MODEL_URL="${HF_MODEL_URL:-https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q6_K_XL.gguf}"
 
 if [ ! -f "$MODEL_PATH" ]; then
     echo "Model not found at $MODEL_PATH — downloading from Hugging Face..."

@@ -17,18 +17,21 @@ services:
       retries: 3
       start_period: 30s
 
+  # Gemma 4 31B (Unsloth UD-Q6_K_XL) via official llama.cpp
+  # Built with CUDA 13.0 + sm_89 PTX fallback (native sm_120 has nvcc O3 bug)
+  # ~45 t/s generation, ~80 t/s concurrent (2 slots), 128k total context (64k per slot)
   ik-llama:
     build:
       context: ./deploy
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "120"
+        CUDA_ARCH: "89" # Ada PTX — Blackwell JIT compiles at runtime. Native 120 broken (nvcc bug)
     container_name: ik-llama
     restart: unless-stopped
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - MODEL_PATH=/models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
+      - MODEL_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
       - HF_MODEL_URL=${HF_MODEL_URL}
     volumes:
       - ${MODEL_DIR}:/models
@@ -36,32 +39,29 @@ services:
       - "8090:8090"
     command:
       - -m
-      - /models/Qwen3.5-27B-IQ4_KS-GGUF/Qwen3.5-27B-IQ4_KS.gguf
+      - /models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
       - -ngl
-      - "999"
+      - "999"       # all layers on GPU
       - -fa
-      - "1"
+      - "1"         # flash attention (~2x prompt speed)
       - -c
-      - "200000"
+      - "131072"    # 128k context total (64k per slot with -np 2)
       - -ctk
-      - q8_0
+      - q4_0        # KV cache 4-bit — saves ~3 GB VRAM vs q8_0
       - -ctv
-      - q8_0
+      - q4_0
       - --host
       - "0.0.0.0"
       - --port
       - "8090"
-      - -sps
-      - "0"
       - -np
-      - "3"
-      - -ub
-      - "1024"
-      - --ctx-checkpoints-interval
-      - "0"
-      - --mlock
-      - -cram
-      - "0"
+      - "2"         # 2 concurrent request slots
+      - --spec-type
+      - ngram-simple # n-gram speculative decoding (free speedup on repetitive text)
+      - --draft-max
+      - "16"
+      - --draft-min
+      - "4"
       - --api-key
       - ${API_KEY}
     healthcheck:
@@ -69,47 +69,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 120s
-
-  embeddings:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
-    container_name: embeddings
-    restart: unless-stopped
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-    volumes:
-      - ${MODEL_DIR}:/models:ro
-    ports:
-      - "8091:8091"
-    command:
-      - --model
-      - /models/gte-Qwen2-7B-instruct-GGUF/gte-Qwen2-7B-instruct-Q5_K_M.gguf
-      - --embedding
-      - --pooling
-      - last
-      - -ngl
-      - "999"
-      - -c
-      - "8192"
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8091"
-      - -np
-      - "2"
-      - --timeout
-      - "15"
-      - -cram
-      - "0"
-      - --api-key
-      - ${API_KEY}
-    healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8091/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      start_period: 300s # model load + warmup takes a while
 
   cloudflared:
     image: cloudflare/cloudflared:latest
