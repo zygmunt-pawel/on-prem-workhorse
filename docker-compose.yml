@@ -74,13 +74,13 @@ services:
 
   # gte-Qwen2-7B-instruct (Q5_K_M) — embedding model on CPU only
   # Exposed at embeddings.leads.run via Cloudflare tunnel
-  ik-embedding:
+  embedding:
     build:
       context: ./deploy
       dockerfile: Dockerfile
       args:
         CUDA_ARCH: "89"
-    container_name: ik-embedding
+    container_name: embedding
     restart: unless-stopped
     runtime: nvidia
     environment:
@@ -120,7 +120,7 @@ services:
     depends_on:
       ik-llama:
         condition: service_healthy
-      ik-embedding:
+      embedding:
         condition: service_healthy
     command:
       - tunnel
