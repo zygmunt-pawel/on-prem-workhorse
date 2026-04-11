@@ -72,12 +72,55 @@ services:
       retries: 3
       start_period: 300s # model load + warmup takes a while
 
+  # gte-Qwen2-7B-instruct (Q5_K_M) — embedding model on CPU only
+  # Exposed at embeddings.leads.run via Cloudflare tunnel
+  ik-embedding:
+    build:
+      context: ./deploy
+      dockerfile: Dockerfile
+      args:
+        CUDA_ARCH: "89"
+    container_name: ik-embedding
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - MODEL_PATH=/models/gte-Qwen2-7B-instruct-GGUF/gte-Qwen2-7B-instruct-Q5_K_M.gguf
+    volumes:
+      - ${MODEL_DIR}:/models
+    ports:
+      - "8091:8091"
+    command:
+      - -m
+      - /models/gte-Qwen2-7B-instruct-GGUF/gte-Qwen2-7B-instruct-Q5_K_M.gguf
+      - -ngl
+      - "0"         # CPU only
+      - --embedding
+      - --pooling
+      - last
+      - -c
+      - "8192"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8091"
+      - --api-key
+      - ${API_KEY}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared
     restart: unless-stopped
     depends_on:
       ik-llama:
+        condition: service_healthy
+      ik-embedding:
         condition: service_healthy
     command:
       - tunnel
