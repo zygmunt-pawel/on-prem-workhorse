@@ -17,9 +17,9 @@ services:
       retries: 3
       start_period: 30s
 
-  # Gemma 4 31B (Unsloth UD-Q6_K_XL) via official llama.cpp
+  # Qwen3.5-27B (Q6_K_L) via official llama.cpp
   # Built with CUDA 13.0 + sm_89 PTX fallback (native sm_120 has nvcc O3 bug)
-  # ~45 t/s generation, ~80 t/s concurrent (2 slots), 128k total context (64k per slot)
+  # 128k context, single slot
   # NOTE: service name kept as "ik-llama" to match Cloudflare tunnel routing config
   ik-llama:
     build:
@@ -32,7 +32,7 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - MODEL_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
+      - MODEL_PATH=/models/Qwen3.5-27B-Q6_K_L-GGUF/Qwen_Qwen3.5-27B-Q6_K_L.gguf
       - HF_MODEL_URL=${HF_MODEL_URL}
     volumes:
       - ${MODEL_DIR}:/models
@@ -40,7 +40,7 @@ services:
       - "8090:8090"
     command:
       - -m
-      - /models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
+      - /models/Qwen3.5-27B-Q6_K_L-GGUF/Qwen_Qwen3.5-27B-Q6_K_L.gguf
       - -ngl
       - "999"       # all layers on GPU
       - -fa
