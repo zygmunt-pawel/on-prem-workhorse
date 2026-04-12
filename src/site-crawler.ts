@@ -14,8 +14,6 @@ import { extractNavLinks } from "./nav-extractor.js";
 // ============ TYPES ============
 
 export interface ScrapeSiteOptions {
-  /** Overall timeout for the entire operation in ms */
-  timeout: number;
   /** Timeout for each individual page scrape in ms */
   pageTimeout: number;
   /** Max number of subpages to scrape (excluding homepage) */
@@ -465,7 +463,7 @@ export async function scrapeSite(
 
   try {
     stealthBrowser = await createStealthBrowser({
-      timeout: options.timeout,
+      timeout: options.pageTimeout,
       proxyUrl: options.proxyUrl,
     });
     const { context, page: homePage } = stealthBrowser;

@@ -34,7 +34,7 @@ Docker build & run via parent `docker-compose.local.yml`. Image: `social_watcher
 
 **`POST /scrape`** body: `{ url: string, timeout?: number (default 20000), maxChars?: number | null (default 20000, null = no limit) }`
 
-**`POST /scrape-site`** body: `{ url: string, timeout?: number (default 120000), pageTimeout?: number (default 15000), maxPages?: number (default 6), maxChars?: number | null (default 20000, null = no limit) }`
+**`POST /scrape-site`** body: `{ url: string, pageTimeout?: number (default 15000), maxPages?: number (default 6), maxChars?: number | null (default 20000, null = no limit) }`
 
 ### Response format
 

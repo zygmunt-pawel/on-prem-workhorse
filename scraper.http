@@ -22,7 +22,7 @@ X-Api-Key: {{apiKey}}
 
 {
   "url": "https://example.com",
-  "timeout": 120000,
+  "pageTimeout": 15000,
   "maxPages": 6,
   "maxChars": 20000
 }

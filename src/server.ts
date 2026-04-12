@@ -143,7 +143,6 @@ fastify.post<{ Body: ScrapeBody; Reply: ScrapeResult | ScraperError }>(
 
 interface ScrapeSiteBody {
   url: string;
-  timeout?: number;
   pageTimeout?: number;
   maxPages?: number;
   maxChars?: number | null;
@@ -158,7 +157,6 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
         required: ["url"],
         properties: {
           url: { type: "string" },
-          timeout: { type: "number", default: 120000 },
           pageTimeout: { type: "number", default: 15000 },
           maxPages: { type: "number", default: 6 },
           maxChars: { type: ["number", "null"], default: 20000 },
@@ -169,7 +167,6 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
   async (request, reply) => {
     const {
       url,
-      timeout = 120000,
       pageTimeout = 15000,
       maxPages = 6,
       maxChars = 20000,
@@ -181,9 +178,13 @@ fastify.post<{ Body: ScrapeSiteBody; Reply: ScrapeSiteResult | ScraperError }>(
       return urlError;
     }
 
+    if (pageTimeout <= 0) {
+      reply.status(400);
+      return { message: "Page timeout must be a positive number", code: "INVALID_REQUEST" };
+    }
+
     try {
       const result = await scrapeSite(url, {
-        timeout,
         pageTimeout,
         maxPages,
         proxyUrl: PROXY_URL || undefined,
