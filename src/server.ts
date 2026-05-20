@@ -73,7 +73,7 @@ const fastify = Fastify({
   logger: true,
 });
 
-// API key auth — skip for /health so Azure probes work without credentials
+// API key auth — skip for /health so the Docker healthcheck works without credentials
 if (API_KEY) {
   fastify.addHook("onRequest", async (request, reply) => {
     if (request.url === "/health") return;
