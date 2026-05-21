@@ -4,10 +4,12 @@ Node.js/TypeScript microservice for scraping websites and converting HTML to LLM
 
 **Stack:** Node.js 22, TypeScript, Fastify 5, Playwright Ghost, Cheerio, Turndown
 
+> Part of the **on-prem-workhorse** stack — see `README.md` for the LLM,
+> embeddings, deployment, and architecture. This file documents the scraper.
+
 ## Commands
 
 ```bash
-cd scraper
 make rebuild          # Build from scratch (no cache) and start
 make up               # Build (cached) and start
 make logs             # Tail container logs
@@ -22,7 +24,7 @@ make test-caldo       # Test caldo.pl
 make test-emailit     # Test emailit.com
 ```
 
-Docker build & run via parent `docker-compose.local.yml`. Image: `social_watcher_v2_local_scraper`.
+Docker build & run via `docker-compose.yml`. Image: `on-prem-workhorse:latest`.
 
 ## API Endpoints
 

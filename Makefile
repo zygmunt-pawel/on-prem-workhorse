@@ -1,8 +1,8 @@
 # Scraper testing & management
-# Usage: cd scraper && make <target>
+# Usage: make <target>
 
-SCRAPER_URL ?= http://localhost:3001
-COMPOSE := docker compose -f ../docker-compose.yml
+SCRAPER_URL ?= http://localhost:3000
+COMPOSE := docker compose -f docker-compose.yml
 FMT := python3 format-output.py --json
 WAIT_TIMEOUT ?= 30
 
