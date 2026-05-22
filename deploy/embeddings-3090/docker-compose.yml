@@ -1,0 +1,46 @@
+# Qwen3-Embedding-8B — embedding server for classifier-3090 (RTX 3090, 24 GB)
+#
+# Standalone stack, separate from the main on-prem-workhorse compose.
+# Local only: bound to the LAN (192.168.1.138:8091), no Cloudflare tunnel.
+#
+# Uses the official prebuilt llama.cpp CUDA image — NOT deploy/Dockerfile,
+# because that image is CUDA 13.0 and this box runs driver 570 (CUDA 12.x max).
+services:
+  embeddings:
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    container_name: embeddings
+    restart: unless-stopped
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      # Image ships its .so files in /app but does not put /app on the
+      # linker path — without this, llama-server fails to start (exit 127).
+      - LD_LIBRARY_PATH=/app
+    volumes:
+      - ./models:/models
+    ports:
+      - "8091:8091"
+    command:
+      - -m
+      - /models/Qwen3-Embedding-8B-Q8_0.gguf
+      - --embedding
+      - --pooling
+      - last          # Qwen3-Embedding uses last-token pooling
+      - -ngl
+      - "999"         # all layers on GPU — 8B Q8_0 (~9 GB) fits easily in 24 GB
+      - -c
+      - "8192"        # context = max input length per embed request
+      - -b
+      - "8192"
+      - -ub
+      - "8192"        # ubatch >= context — required for non-causal embedding
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8091"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8091/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

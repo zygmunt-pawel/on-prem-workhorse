@@ -1,10 +1,9 @@
 # on-prem-workhorse
 
-Self-hosted inference stack running on a single GPU machine. Provides three
+Self-hosted inference stack running on a single GPU machine. Provides two
 services behind a Cloudflare tunnel:
 
 - **LLM** — Gemma 4 31B chat completions (OpenAI-compatible API)
-- **Embeddings** — gte-Qwen2-7B text embeddings (OpenAI-compatible API)
 - **Scraper** — website → LLM-ready Markdown microservice
 
 Fully self-hosted: no cloud dependencies. All configuration and secrets live in
@@ -16,14 +15,12 @@ a local `.env` file on the host.
                           Cloudflare tunnel (cloudflared container)
                           ┌──────────────────────────────────────┐
   Internet ───────────────┤  model.leads.run      → ik-llama:8090 │
-                          │  embeddings.leads.run → embeddings:8091│
                           │  fetch.leads.run      → scraper:3000  │
                           └──────────────────────────────────────┘
                                           │
    Host: classifier-gpu (RTX 5090)        │  docker compose
    ┌────────────────────────────────────────────────────────────┐
    │  ik-llama     :8090   Gemma 4 31B   (GPU, ~30 GB VRAM)       │
-   │  embeddings   :8091   gte-Qwen2-7B  (CPU only)               │
    │  scraper      :3000   Playwright + HTML→Markdown             │
    │  cloudflared          outbound tunnel, no inbound ports      │
    └────────────────────────────────────────────────────────────┘
@@ -38,12 +35,11 @@ connection and Cloudflare routes the three public hostnames to it.
 | Service | Container | Host port | Public URL | Auth header |
 |---|---|---|---|---|
 | LLM | `ik-llama` | 8090 | `https://model.leads.run` | `Authorization: Bearer <API_KEY>` |
-| Embeddings | `embeddings` | 8091 | `https://embeddings.leads.run` | `Authorization: Bearer <API_KEY>` |
 | Scraper | `scraper` | 3000 | `https://fetch.leads.run` | `x-api-key: <SCRAPER_API_KEY>` |
 
 `/health` is open on every service (no key) — used by the Docker healthchecks.
-All other endpoints require the key. The LLM and embeddings share one key
-(`API_KEY`); the scraper has its own (`SCRAPER_API_KEY`).
+All other endpoints require the key. The LLM uses `API_KEY`; the scraper has
+its own (`SCRAPER_API_KEY`).
 
 ### LLM — `model.leads.run`
 
@@ -68,21 +64,6 @@ Notes:
   (Blackwell `sm_120`) CUDA kernels JIT-compile on the first request, which can
   take ~80 s. Subsequent requests run at full speed (~370 tok/s prompt,
   ~46 tok/s generation).
-
-### Embeddings — `embeddings.leads.run`
-
-OpenAI-compatible embeddings server (`llama.cpp`) running
-**gte-Qwen2-7B-instruct** (`Q5_K_M` GGUF) on **CPU only**, last-token pooling,
-8192 context. Returns 3584-dimensional vectors.
-
-```bash
-curl https://embeddings.leads.run/v1/embeddings \
-  -H "Authorization: Bearer <API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"text to embed"}'
-```
-
-Endpoints: `/v1/embeddings`, `/health`.
 
 ### Scraper — `fetch.leads.run`
 
@@ -164,7 +145,7 @@ Rotating a key: edit `.env`, then `docker compose up -d --force-recreate`.
 
 ```bash
 docker compose ps                 # status of all containers
-docker compose logs -f ik-llama   # follow LLM logs (or embeddings / scraper / cloudflared)
+docker compose logs -f ik-llama   # follow LLM logs (or scraper / cloudflared)
 docker compose restart scraper    # restart one service
 docker compose down               # stop everything
 ```
@@ -173,18 +154,17 @@ Quick health check (no key required):
 
 ```bash
 curl https://model.leads.run/health
-curl https://embeddings.leads.run/health
 curl https://fetch.leads.run/health
 ```
 
 ## Repository layout
 
 ```
-docker-compose.yml   # the 4-service stack: scraper, ik-llama, embeddings, cloudflared
+docker-compose.yml   # the 3-service stack: scraper, ik-llama, cloudflared
 .env.example         # config template — copy to .env and fill in
 Dockerfile           # scraper image
 deploy/
-  Dockerfile         # llama.cpp + CUDA image (used by ik-llama and embeddings)
+  Dockerfile         # llama.cpp + CUDA image (used by ik-llama)
   entrypoint.sh      # downloads the model GGUF on first run, then starts llama-server
 src/                 # scraper source (TypeScript) — see AGENTS.md
 Makefile             # scraper test/dev targets
