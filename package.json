@@ -8,7 +8,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "npx tsx src/server.ts",
-    "test": "node --import tsx --test src/dynamic-reveal.test.ts"
+    "test": "node --import tsx --test src/dynamic-reveal.test.ts src/html-parser.test.ts"
   },
   "dependencies": {
     "@types/turndown": "^5.0.6",

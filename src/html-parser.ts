@@ -211,13 +211,24 @@ function preprocessForMarkdown($: cheerio.CheerioAPI): void {
     '[style*="clip-path:inset(100%)"]',
     '[style*="overflow: hidden"][style*="height: 0"]',
     '[style*="overflow:hidden"][style*="height:0"]',
-    '.hidden',
     '.sr-only',
     '.visually-hidden',
     '.screen-reader-text',
     '.invisible',
     '.d-none',
   ].join(', ')).remove();
+
+  // Tailwind's `.hidden` is responsive: `hidden lg:flex` / `hidden md:block` means
+  // display:none on mobile but VISIBLE on desktop. The page is rendered at a desktop
+  // viewport (1920px), so only remove `.hidden` elements that have NO responsive
+  // show utility for a breakpoint — otherwise we strip desktop-visible content.
+  $('.hidden').each((_, el) => {
+    const toks = ($(el).attr('class') || '').split(/\s+/);
+    const showsOnDesktop = toks.some((c) =>
+      /^(sm|md|lg|xl|2xl):(flex|block|grid|inline|inline-block|inline-flex|table|contents|flow-root)$/.test(c)
+    );
+    if (!showsOnDesktop) $(el).remove();
+  });
 
   // Remove aria-hidden="true" only on likely-decorative elements (icons, small spans)
   // Avoid removing larger containers that may have visible content
