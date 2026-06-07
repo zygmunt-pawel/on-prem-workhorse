@@ -71,7 +71,12 @@ export async function scrapePage(
     // Reveal carousel/slider + FAQ content hidden from a single snapshot.
     // Must run BEFORE removeHiddenElements so recovered content survives.
     const revealMetrics = await revealDynamicContent(page);
-    if (revealMetrics.slidesRecovered > 0 || revealMetrics.faqsExpanded > 0) {
+    if (
+      revealMetrics.slidesRecovered > 0 ||
+      revealMetrics.faqsExpanded > 0 ||
+      revealMetrics.faqsClickExpanded > 0 ||
+      revealMetrics.faqsFromSchema > 0
+    ) {
       console.log("dynamic-reveal", JSON.stringify(revealMetrics));
     }
 

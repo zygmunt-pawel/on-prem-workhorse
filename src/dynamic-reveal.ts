@@ -56,6 +56,112 @@ export function pickSlideCount(counts: number[]): number {
   return valid.length ? Math.max(...valid) : 0;
 }
 
+/** Signals (read from a DOM element) used to decide if it's a click-to-expand FAQ toggle. */
+export interface FaqToggleSignals {
+  /** Uppercase tagName, e.g. "BUTTON". */
+  tag: string;
+  /** Element has role="button". */
+  roleButton: boolean;
+  /** Element is an <a> with an href (clicking would navigate). */
+  isLink: boolean;
+  /** textContent of the element. */
+  text: string;
+  /** Value of the aria-expanded attribute, or null if absent. */
+  ariaExpanded: string | null;
+  /** Element contains a chevron/caret/arrow/plus toggle icon. */
+  hasChevronIcon: boolean;
+}
+
+/**
+ * True if an element looks like a collapsed FAQ/accordion toggle worth clicking
+ * to mount its (otherwise absent) answer. Conservative to avoid clicking links,
+ * non-interactive nodes, or non-FAQ controls. Already-open toggles return false.
+ */
+export function isFaqToggle(s: FaqToggleSignals): boolean {
+  if (s.isLink) return false;
+  const txt = s.text.replace(/\s+/g, " ").trim();
+  if (!txt || txt.length > 200) return false;
+  const clickable =
+    s.tag === "BUTTON" ||
+    s.tag === "SUMMARY" ||
+    s.roleButton ||
+    s.ariaExpanded !== null;
+  if (!clickable) return false;
+  // Standard accessible accordion: aria-expanded tells us the state directly.
+  if (s.ariaExpanded === "true") return false; // already open — nothing to do
+  if (s.ariaExpanded === "false") return true; // collapsed — expand it
+  // Headless accordions (Framer/Radix/Tailwind) often lack aria-expanded: fall
+  // back to a chevron icon paired with question-like / short header text.
+  const looksQuestion = /\?$/.test(txt) || txt.split(" ").length <= 10;
+  return s.hasChevronIcon && looksQuestion;
+}
+
+export interface FaqEntry {
+  question: string;
+  answer: string;
+}
+
+/** Strip HTML tags and decode a few common entities down to plain text. */
+function htmlToText(s: string): string {
+  return s
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Extract {question, answer} pairs from schema.org FAQPage JSON-LD text.
+ * Handles a top-level FAQPage, an array of nodes, or an `@graph` wrapper, with
+ * `mainEntity` as an array or a single Question. Answers are reduced to plain
+ * text. Returns [] on invalid JSON or when no FAQPage/Questions are present.
+ */
+export function parseFaqJsonLd(jsonLdText: string): FaqEntry[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(jsonLdText);
+  } catch {
+    return [];
+  }
+  const asArray = (v: unknown): unknown[] =>
+    Array.isArray(v) ? v : v == null ? [] : [v];
+  const typesOf = (n: Record<string, unknown>): string[] =>
+    asArray(n["@type"]).map((t) => String(t));
+
+  // Candidate nodes: top-level item(s) plus any @graph children.
+  const nodes: Record<string, unknown>[] = [];
+  for (const top of asArray(data)) {
+    if (top && typeof top === "object") {
+      const obj = top as Record<string, unknown>;
+      nodes.push(obj);
+      for (const g of asArray(obj["@graph"])) {
+        if (g && typeof g === "object") nodes.push(g as Record<string, unknown>);
+      }
+    }
+  }
+
+  const entries: FaqEntry[] = [];
+  for (const node of nodes) {
+    if (!typesOf(node).includes("FAQPage")) continue;
+    for (const q of asArray(node.mainEntity)) {
+      if (!q || typeof q !== "object") continue;
+      const question = htmlToText(String((q as Record<string, unknown>).name ?? ""));
+      const ans = asArray((q as Record<string, unknown>).acceptedAnswer)[0] as
+        | Record<string, unknown>
+        | undefined;
+      const answer = htmlToText(String(ans?.text ?? ""));
+      if (question && answer) entries.push({ question, answer });
+    }
+  }
+  return entries;
+}
+
 // ============ IN-PAGE SELECTORS ============
 
 const SLIDER_CONTAINERS = [
@@ -103,7 +209,9 @@ const NEXT_CONTROLS = [
 ];
 
 /** Pure helper sources injected into the page (named function declarations). */
-const INJECTED = [isNavLike, pickSlideCount].map((f) => f.toString()).join("\n");
+const INJECTED = [isNavLike, pickSlideCount, isFaqToggle]
+  .map((f) => f.toString())
+  .join("\n");
 
 // ============ IN-PAGE SCRIPT BUILDERS ============
 
@@ -244,6 +352,181 @@ function buildInjectScript(cid: number, htmls: string[]): string {
   })(${JSON.stringify(htmls)})`;
 }
 
+/**
+ * Builds an async script that clicks collapsed FAQ/accordion toggles to mount
+ * their (otherwise absent-from-DOM) answers, captures each answer's text, then
+ * re-collapses and injects the answer as a static visible node. Handles headless
+ * accordions (Framer/Radix/Tailwind) where answers exist only after a click.
+ */
+function buildAccordionScript(): string {
+  return `(async () => {
+    ${INJECTED}
+    const d = (ms) => new Promise((r) => setTimeout(r, ms));
+    const MAX_TOGGLES = 40;
+    const CHEVRON_SEL = [
+      'svg[class*="chevron" i]','svg[class*="caret" i]','svg[class*="arrow" i]',
+      'svg[class*="plus" i]','svg[class*="expand" i]','svg[class*="accordion" i]',
+      'i[class*="chevron" i]','i[class*="caret" i]','i[class*="fa-plus" i]',
+      'i[class*="fa-angle" i]','[class*="chevron" i]','[class*="caret" i]',
+    ].join(',');
+
+    function classId(el) {
+      const cls = el.className && el.className.baseVal !== undefined
+        ? el.className.baseVal : String(el.className || '');
+      return cls + ' ' + (el.id || '');
+    }
+    function inNav(el) {
+      let n = el;
+      while (n && n !== document.body) {
+        if (n.tagName === 'NAV' || n.tagName === 'HEADER') return true;
+        if (n.getAttribute && n.getAttribute('role') === 'navigation') return true;
+        if (isNavLike(classId(n))) return true;
+        n = n.parentElement;
+      }
+      return false;
+    }
+
+    const candidates = Array.from(
+      document.querySelectorAll('button, summary, [role="button"], [aria-expanded]')
+    );
+    const toggles = [];
+    for (const el of candidates) {
+      if (inNav(el)) continue;
+      const signals = {
+        tag: el.tagName,
+        roleButton: el.getAttribute('role') === 'button',
+        isLink: el.tagName === 'A' && !!el.getAttribute('href'),
+        text: el.textContent || '',
+        ariaExpanded: el.getAttribute('aria-expanded'),
+        hasChevronIcon: !!el.querySelector(CHEVRON_SEL),
+      };
+      if (isFaqToggle(signals)) toggles.push(el);
+    }
+
+    let expanded = 0;
+    for (const t of toggles.slice(0, MAX_TOGGLES)) {
+      // Watch progressively wider ancestors; the tightest one where the answer
+      // is cleanly appended (after starts with before) wins. Broad containers
+      // (whole list) self-reject because a mid-list insert breaks startsWith.
+      const containers = [];
+      let anc = t.parentElement;
+      for (let i = 0; i < 4 && anc && anc !== document.body; i++) {
+        containers.push(anc);
+        anc = anc.parentElement;
+      }
+      if (!containers.length) continue;
+      const befores = containers.map(
+        (c) => (c.textContent || '').replace(/\\s+/g, ' ').trim()
+      );
+
+      try { t.click(); } catch (e) { continue; }
+      await d(220);
+
+      let answer = '';
+      let host = containers[0];
+      for (let i = 0; i < containers.length; i++) {
+        const after = (containers[i].textContent || '').replace(/\\s+/g, ' ').trim();
+        if (after.length > befores[i].length + 15 && after.startsWith(befores[i])) {
+          answer = after.slice(befores[i].length).trim();
+          host = containers[i];
+          break;
+        }
+      }
+
+      // Re-collapse so the live answer can't duplicate our injected static node.
+      try { t.click(); } catch (e) {}
+
+      if (answer && answer.length > 15) {
+        const node = document.createElement('div');
+        node.setAttribute('data-recovered-faq', '1');
+        const p = document.createElement('p');
+        p.textContent = answer;
+        node.appendChild(p);
+        (t.parentElement || host).insertBefore(node, t.nextSibling);
+        expanded++;
+      }
+    }
+    return { faqClicked: toggles.length, faqExpanded: expanded };
+  })()`;
+}
+
+/** Builds a script returning the text of every application/ld+json block. */
+function buildLdJsonExtractScript(): string {
+  return `(() => {
+    const out = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
+      const t = s.textContent;
+      if (t && t.trim()) out.push(t);
+    });
+    return out;
+  })()`;
+}
+
+/**
+ * Builds a script that injects FAQ answers parsed from JSON-LD. Each answer is
+ * placed right after its matching question element when one is found, else in a
+ * recovered section at the end. Answers already visible on the page are skipped.
+ */
+function buildInjectFaqScript(entries: FaqEntry[]): string {
+  return `((entries) => {
+    const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+    // Dedup against the text that will SURVIVE removeHiddenElements (mirrors its
+    // criteria): not against textContent (would include the JSON-LD <script>) nor
+    // innerText (includes collapsed accordion panels that get stripped later).
+    function survivingText(root) {
+      let out = '';
+      const walk = (el) => {
+        const cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        if (cs.opacity === '0') return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 && r.height === 0 && cs.overflow === 'hidden') return;
+        for (const n of el.childNodes) {
+          if (n.nodeType === 3) out += ' ' + n.nodeValue;
+          else if (n.nodeType === 1 && n.tagName !== 'SCRIPT' && n.tagName !== 'STYLE') walk(n);
+        }
+      };
+      walk(root);
+      return norm(out);
+    }
+    const bodyText = survivingText(document.body);
+    const candidates = Array.from(
+      document.querySelectorAll('h2,h3,h4,h5,summary,button,dt,[role="button"],span,p,div,li')
+    );
+    let n = 0;
+    const orphans = [];
+    for (const e of entries) {
+      const probe = norm(e.answer).slice(0, 40);
+      if (probe && bodyText.includes(probe)) continue; // already present in surviving DOM
+      const qn = norm(e.question);
+      let target = null;
+      for (const el of candidates) {
+        if (norm(el.textContent) === qn && el.children.length <= 2) { target = el; break; }
+      }
+      if (target) {
+        const ans = document.createElement('p');
+        ans.setAttribute('data-recovered-faq', '1');
+        ans.textContent = e.answer;
+        (target.parentElement || document.body).insertBefore(ans, target.nextSibling);
+        n++;
+      } else {
+        orphans.push(e);
+      }
+    }
+    if (orphans.length) {
+      const sec = document.createElement('section');
+      sec.setAttribute('data-recovered-faq', '1');
+      for (const e of orphans) {
+        const q = document.createElement('h3'); q.textContent = e.question;
+        const a = document.createElement('p'); a.textContent = e.answer;
+        sec.appendChild(q); sec.appendChild(a); n++;
+      }
+      document.body.appendChild(sec);
+    }
+    return n;
+  })(${JSON.stringify(entries)})`;
+}
+
 // ============ ORCHESTRATOR ============
 
 export interface RevealOptions {
@@ -254,7 +537,12 @@ export interface RevealOptions {
 export interface RevealMetrics {
   carouselsFound: number;
   slidesRecovered: number;
+  /** FAQ/slider panels force-revealed in place (already in DOM). */
   faqsExpanded: number;
+  /** FAQ answers recovered by clicking a toggle that mounts them on demand. */
+  faqsClickExpanded: number;
+  /** FAQ answers recovered from schema.org FAQPage JSON-LD. */
+  faqsFromSchema: number;
 }
 
 /**
@@ -272,6 +560,8 @@ export async function revealDynamicContent(
     carouselsFound: 0,
     slidesRecovered: 0,
     faqsExpanded: 0,
+    faqsClickExpanded: 0,
+    faqsFromSchema: 0,
   };
 
   try {
@@ -343,6 +633,34 @@ export async function revealDynamicContent(
         )) as number;
         metrics.slidesRecovered += injected;
       }
+    }
+
+    // Click-to-expand FAQ/accordion toggles whose answers are mounted only on
+    // click (headless Framer/Radix/Tailwind accordions, not in the DOM until then).
+    const acc = (await page.evaluate(buildAccordionScript())) as {
+      faqClicked: number;
+      faqExpanded: number;
+    };
+    metrics.faqsClickExpanded = acc.faqExpanded;
+
+    // Recover FAQ answers from schema.org FAQPage JSON-LD (parsed in Node, then
+    // injected): reliable even when the rendered accordion mounts answers on click.
+    const ldTexts = (await page.evaluate(buildLdJsonExtractScript())) as string[];
+    const faqEntries: FaqEntry[] = [];
+    const seenQuestions = new Set<string>();
+    for (const t of ldTexts) {
+      for (const e of parseFaqJsonLd(t)) {
+        const key = normalizeText(e.question);
+        if (key && !seenQuestions.has(key)) {
+          seenQuestions.add(key);
+          faqEntries.push(e);
+        }
+      }
+    }
+    if (faqEntries.length) {
+      metrics.faqsFromSchema = (await page.evaluate(
+        buildInjectFaqScript(faqEntries)
+      )) as number;
     }
   } catch {
     // best-effort — swallow and return whatever metrics we have
