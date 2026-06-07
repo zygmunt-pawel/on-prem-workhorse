@@ -6,7 +6,7 @@ COMPOSE := docker compose -f docker-compose.yml
 FMT := python3 format-output.py --json
 WAIT_TIMEOUT ?= 30
 
-.PHONY: help rebuild up logs wait scrape scrape-site
+.PHONY: help rebuild up logs wait scrape scrape-site test-reveal
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -52,6 +52,12 @@ scrape-site: ## Multi-page:   make scrape-site URL=https://example.com
 	@curl -s -X POST $(SCRAPER_URL)/scrape-site \
 		-H 'Content-Type: application/json' \
 		-d '{"url": "$(URL)", "timeout": 120000, "maxPages": 6}' | $(FMT)
+
+test-reveal: ## Reveal check: make test-reveal URL=https://example.com
+	@test -n "$(URL)" || (echo "Usage: make test-reveal URL=https://example.com" && exit 1)
+	@curl -s -X POST $(SCRAPER_URL)/scrape \
+		-H 'Content-Type: application/json' \
+		-d '{"url": "$(URL)", "timeout": 30000}' | jq -r '.markdown'
 
 # ─── SSRF integration tests ─────────────────────────────────────────
 
