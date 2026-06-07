@@ -33,6 +33,7 @@ Docker build & run via `docker-compose.yml`. Image: `on-prem-workhorse:latest`.
 | `/health` | GET | Health check |
 | `/scrape` | POST | Single page scrape |
 | `/scrape-site` | POST | Multi-page site crawl |
+| `/favicon` | POST | Fetch favicon as base64 data URI |
 
 **`POST /scrape`** body: `{ url: string, timeout?: number (default 20000), maxChars?: number | null (default 20000, null = no limit) }`
 
@@ -41,6 +42,9 @@ Docker build & run via `docker-compose.yml`. Image: `on-prem-workhorse:latest`.
 ### Response format
 
 Success returns the result object directly (no envelope). Error returns `{ message, code }` with proper HTTP status.
+
+`/scrape` returns: `source`, `markdown`, `cleanedHtml`, `rawHtml`, `favicon`,
+`heroScreenshot`, `contentHash`.
 
 ### HTTP status codes
 
@@ -66,13 +70,16 @@ src/
 ├── html-parser.ts     # HTML → Markdown (preprocessing, turndown, postprocessing)
 ├── sitemap-parser.ts  # /sitemap.xml fetcher & parser
 ├── nav-extractor.ts   # Navigation link extraction from HTML
-└── stealth.ts         # Playwright Ghost browser setup (anti-detection)
+├── stealth.ts         # Playwright Ghost browser setup (anti-detection)
+├── ssrf-guard.ts      # SSRF protection (private-IP / scheme blocking)
+├── favicon.ts         # Favicon discovery & base64 fetch
+└── dynamic-reveal.ts  # Reveal carousel/slider + FAQ content before snapshot
 ```
 
 ## Architecture
 
 ### Single page (`/scrape`)
-`server.ts` → `scraper.ts:scrapePage()` → stealth browser → navigate → wait 2s for JS → scroll to bottom (lazy load) → extract HTML → `html-parser.ts:parseHtml()` → return markdown + metadata
+`server.ts` → `scraper.ts:scrapePage()` → stealth browser → navigate → wait 2s for JS → scroll to bottom (lazy load) → reveal carousels/FAQ (dynamic-reveal.ts) → extract HTML → `html-parser.ts:parseHtml()` → return markdown + metadata
 
 ### Multi-page (`/scrape-site`)
 `server.ts` → `site-crawler.ts:scrapeSite()`:
@@ -93,6 +100,13 @@ src/
 
 ### Stealth browser (`stealth.ts`)
 Playwright Ghost with plugins: `automation`, `webdriver`, `headless`, `screen`, `viewport`, `dialog`, `fingerprint`. Realistic Chrome UA, headers, timezone. Optional proxy via `PROXY_URL` env var.
+
+### Dynamic content reveal (`dynamic-reveal.ts`)
+Recovers content a single DOM snapshot misses. Always force-reveals in-DOM-but-hidden
+slider/FAQ content via `!important` overrides + attribute/class stripping. For rotating
+carousels (e.g. ng-bootstrap, which renders only the active slide), polls ~3s then, if
+slides remain, advances the carousel's own "next" control, injecting recovered slides as
+static nodes. Best-effort: never fails a scrape. Runs before `removeHiddenElements`.
 
 ## Environment Variables
 
