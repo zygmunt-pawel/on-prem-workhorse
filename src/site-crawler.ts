@@ -10,6 +10,7 @@ import { parseHtml, type Favicon } from "./html-parser.js";
 import { installSsrfGuard } from "./ssrf-guard.js";
 import { parseSitemap } from "./sitemap-parser.js";
 import { extractNavLinks } from "./nav-extractor.js";
+import { revealDynamicContent } from "./dynamic-reveal.js";
 
 // ============ TYPES ============
 
@@ -393,6 +394,7 @@ async function scrapePageInContext(
     await page.waitForTimeout(2000);
     await scrollToBottom(page);
     await page.waitForTimeout(500);
+    await revealDynamicContent(page);
 
     const rawHtml = await page.content();
     const parsed = parseHtml(rawHtml, url, {
@@ -486,6 +488,7 @@ export async function scrapeSite(
     await homePage.waitForTimeout(2000);
     await scrollToBottom(homePage);
     await homePage.waitForTimeout(500);
+    await revealDynamicContent(homePage);
 
     const homepageHtml = await homePage.content();
     const homepageParsed = parseHtml(homepageHtml, url, {
