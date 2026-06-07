@@ -122,7 +122,7 @@ const CANVAS_NOISE_SCRIPT = `(() => {
 
 // ============ BROWSER CREATION ============
 
-export async function createStealthBrowser(
+async function doCreateStealthBrowser(
   options: StealthBrowserOptions
 ): Promise<StealthBrowser> {
   const args = [...STEALTH_ARGS];
@@ -203,6 +203,30 @@ export async function createStealthBrowser(
   } catch (err) {
     await browser.close().catch(() => {});
     throw err;
+  }
+}
+
+// Hard cap on browser startup. playwright-ghost's fingerprint plugin has been
+// observed to wedge the libuv thread pool indefinitely; without a timeout the
+// request hangs forever, the caller times out, and the leaked launch promise
+// keeps occupying pool slots until the process is restarted. With a bound, the
+// request fails fast (504) and the API keeps serving other endpoints.
+const BROWSER_LAUNCH_TIMEOUT_MS = 45_000;
+
+export async function createStealthBrowser(
+  options: StealthBrowserOptions
+): Promise<StealthBrowser> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("browser launch timeout")),
+      BROWSER_LAUNCH_TIMEOUT_MS
+    );
+  });
+  try {
+    return await Promise.race([doCreateStealthBrowser(options), timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

@@ -10,6 +10,10 @@ services:
       - NODE_ENV=production
       - API_KEY=${SCRAPER_API_KEY}
       - PROXY_URL=${PROXY_URL:-}
+      # libuv default is 4 — too tight for spawning chromium under concurrency.
+      # If a launch wedges a pool thread (DNS/fs/pipe setup in playwright-ghost),
+      # every subsequent /scrape-site queues forever. Larger pool absorbs hangs.
+      - UV_THREADPOOL_SIZE=16
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
       interval: 30s
