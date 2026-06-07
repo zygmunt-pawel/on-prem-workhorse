@@ -102,11 +102,21 @@ src/
 Playwright Ghost with plugins: `automation`, `webdriver`, `headless`, `screen`, `viewport`, `dialog`, `fingerprint`. Realistic Chrome UA, headers, timezone. Optional proxy via `PROXY_URL` env var.
 
 ### Dynamic content reveal (`dynamic-reveal.ts`)
-Recovers content a single DOM snapshot misses. Always force-reveals in-DOM-but-hidden
-slider/FAQ content via `!important` overrides + attribute/class stripping. For rotating
-carousels (e.g. ng-bootstrap, which renders only the active slide), polls ~3s then, if
-slides remain, advances the carousel's own "next" control, injecting recovered slides as
-static nodes. Best-effort: never fails a scrape. Runs before `removeHiddenElements`.
+Recovers content a single DOM snapshot misses, via four mechanisms. Best-effort:
+never fails a scrape. Runs before `removeHiddenElements`.
+1. **Force-reveal** in-DOM-but-hidden slider/FAQ content via `!important` overrides +
+   attribute/class stripping (`faqsExpanded`).
+2. **Rotating carousels** (e.g. ng-bootstrap, which renders only the active slide):
+   polls ~3s then, if slides remain, advances the carousel's own "next" control,
+   injecting recovered slides as static nodes (`slidesRecovered`).
+3. **Click-to-expand accordions** (headless Framer/Radix/Tailwind, where answers are
+   mounted only on click): detects toggles (`isFaqToggle`), clicks each, captures the
+   answer text delta, injects it as a static node (`faqsClickExpanded`).
+4. **schema.org FAQPage JSON-LD**: parses `<script type="application/ld+json">` FAQPage
+   blocks (`parseFaqJsonLd`) and injects answers in-context after each question, deduped
+   against text that will survive `removeHiddenElements` (`faqsFromSchema`).
+
+Pure helpers are unit-tested (`npm test`); DOM behaviour is integration-verified.
 
 ## Environment Variables
 
