@@ -2,6 +2,7 @@ import type { BrowserContext } from "playwright-ghost";
 import { createStealthBrowser, closeStealthBrowser } from "./stealth.js";
 import { parseHtml, ParsedPage } from "./html-parser.js";
 import { installSsrfGuard, validateUrlSsrf } from "./ssrf-guard.js";
+import { revealDynamicContent } from "./dynamic-reveal.js";
 
 export interface ScrapeOptions {
   timeout: number;
@@ -66,6 +67,13 @@ export async function scrapePage(
 
     // Small delay to let any final content render
     await page.waitForTimeout(500);
+
+    // Reveal carousel/slider + FAQ content hidden from a single snapshot.
+    // Must run BEFORE removeHiddenElements so recovered content survives.
+    const revealMetrics = await revealDynamicContent(page);
+    if (revealMetrics.slidesRecovered > 0 || revealMetrics.faqsExpanded > 0) {
+      console.log("dynamic-reveal", JSON.stringify(revealMetrics));
+    }
 
     // Remove elements that are visually hidden (computed styles)
     // This catches CSS-class-based hiding, external stylesheets, etc.
