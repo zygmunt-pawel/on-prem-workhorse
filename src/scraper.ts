@@ -297,10 +297,11 @@ async function removeHiddenElements(page: import("playwright-ghost").Page): Prom
         if (!hasVisibleChild) { toRemove.push(el); continue; }
       }
 
-      // opacity:0 — fully transparent (skip tiny spacer elements)
-      if (cs.opacity === '0' && el.textContent && el.textContent.trim().length > 0) {
-        toRemove.push(el); continue;
-      }
+      // NOTE: opacity:0 is intentionally NOT treated as hidden. It is the standard
+      // collapse/fade pattern for accordion answers, inactive carousel slides, and
+      // scroll-in animations — all meaningful content. Removing it dropped real text
+      // (e.g. FAQ answers collapsed via opacity:0 + max-height:0). Genuinely hidden
+      // content is still caught by display:none / visibility:hidden / zero-rect below.
 
       // Clipped to zero rect (screen-reader-only patterns: clip, clip-path, width/height 0+overflow)
       const rect = el.getBoundingClientRect();

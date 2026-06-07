@@ -203,8 +203,8 @@ function preprocessForMarkdown($: cheerio.CheerioAPI): void {
     '[style*="display:none"]',
     '[style*="visibility: hidden"]',
     '[style*="visibility:hidden"]',
-    '[style*="opacity: 0"]',
-    '[style*="opacity:0"]',
+    // opacity:0 is NOT removed — it's the standard collapse/fade pattern for
+    // accordion answers, inactive slides, and scroll-in animations (real content).
     '[style*="clip: rect(0"]',
     '[style*="clip:rect(0"]',
     '[style*="clip-path: inset(100%)"]',
@@ -214,21 +214,14 @@ function preprocessForMarkdown($: cheerio.CheerioAPI): void {
     '.sr-only',
     '.visually-hidden',
     '.screen-reader-text',
-    '.invisible',
-    '.d-none',
   ].join(', ')).remove();
 
-  // Tailwind's `.hidden` is responsive: `hidden lg:flex` / `hidden md:block` means
-  // display:none on mobile but VISIBLE on desktop. The page is rendered at a desktop
-  // viewport (1920px), so only remove `.hidden` elements that have NO responsive
-  // show utility for a breakpoint — otherwise we strip desktop-visible content.
-  $('.hidden').each((_, el) => {
-    const toks = ($(el).attr('class') || '').split(/\s+/);
-    const showsOnDesktop = toks.some((c) =>
-      /^(sm|md|lg|xl|2xl):(flex|block|grid|inline|inline-block|inline-flex|table|contents|flow-root)$/.test(c)
-    );
-    if (!showsOnDesktop) $(el).remove();
-  });
+  // NOTE: class-based display:none (Tailwind `.hidden`, Bootstrap `.d-none`,
+  // `.invisible`) is intentionally NOT removed here. removeHiddenElements (scraper.ts)
+  // already strips genuinely-hidden content using REAL computed styles at the actual
+  // viewport — so it correctly drops `.hidden` but keeps responsive `hidden lg:flex`
+  // (visible on desktop). Static class matching here can't know the computed/responsive
+  // state and previously wrongly stripped desktop-visible content.
 
   // Remove aria-hidden="true" only on likely-decorative elements (icons, small spans)
   // Avoid removing larger containers that may have visible content

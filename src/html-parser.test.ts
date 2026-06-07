@@ -19,11 +19,16 @@ test("responsive-hidden content with 'hidden md:block' also survives", () => {
   assert.ok(markdown.includes("MdBlockContent"), "got: " + JSON.stringify(markdown));
 });
 
-test("truly hidden content (Tailwind 'hidden' with no responsive show) is removed", () => {
-  const html = `<html><body><div class="hidden"><p>TrulyHiddenContent</p></div><p>ShownContent</p></body></html>`;
+test("class-based '.hidden' is NOT stripped by the parser (left to removeHiddenElements)", () => {
+  // The browser-side removeHiddenElements drops genuine display:none using computed
+  // styles at the real viewport. The parser must not strip by static class — that
+  // wrongly removed responsive 'hidden lg:flex' content. So parseHtml alone keeps it.
+  const html = `<html><body><div class="hidden"><p>ClassHiddenKeptByParser</p></div></body></html>`;
   const { markdown } = parseHtml(html, URL);
-  assert.ok(!markdown.includes("TrulyHiddenContent"), "expected truly-hidden removed, got: " + JSON.stringify(markdown));
-  assert.ok(markdown.includes("ShownContent"));
+  assert.ok(
+    markdown.includes("ClassHiddenKeptByParser"),
+    "got: " + JSON.stringify(markdown)
+  );
 });
 
 test("sr-only / visually-hidden content is still removed", () => {
@@ -38,4 +43,13 @@ test("inline display:none content is still removed", () => {
   const { markdown } = parseHtml(html, URL);
   assert.ok(!markdown.includes("InlineHidden"), "got: " + JSON.stringify(markdown));
   assert.ok(markdown.includes("InlineShown"));
+});
+
+test("opacity:0 content with text survives (collapse/fade pattern, not treated as hidden)", () => {
+  const html = `<html><body><div class="overflow-hidden" style="opacity:0; max-height:0px"><p>CollapsedFaqAnswer</p></div></body></html>`;
+  const { markdown } = parseHtml(html, URL);
+  assert.ok(
+    markdown.includes("CollapsedFaqAnswer"),
+    "expected opacity:0 collapsed content to survive, got: " + JSON.stringify(markdown)
+  );
 });

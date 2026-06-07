@@ -478,7 +478,9 @@ function buildInjectFaqScript(entries: FaqEntry[]): string {
       const walk = (el) => {
         const cs = getComputedStyle(el);
         if (cs.display === 'none' || cs.visibility === 'hidden') return;
-        if (cs.opacity === '0') return;
+        // opacity:0 is NOT hidden here — matches removeHiddenElements, which keeps
+        // collapsed/fade content. Treating it as hidden would let JSON-LD re-inject
+        // an answer that actually survives, duplicating it.
         const r = el.getBoundingClientRect();
         if (r.width === 0 && r.height === 0 && cs.overflow === 'hidden') return;
         for (const n of el.childNodes) {
