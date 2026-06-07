@@ -184,10 +184,10 @@ const SLIDE_ITEMS = [
 ];
 
 const FAQ_PANELS = [
-  "[class*='accordion']",
-  "[class*='faq']",
-  ".collapse",
-  "[class*='collapse']",
+  "[class*='accordion' i]",
+  "[class*='faq' i]",
+  "[class*='collaps' i]", // matches collapse, collapsed, collapsible, collapsing
+  "[class*='expandable' i]",
   "[role='region'][aria-labelledby]",
 ];
 
