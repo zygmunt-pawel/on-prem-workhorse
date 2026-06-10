@@ -1,46 +1,47 @@
-# Qwen3-Embedding-8B — embedding server for classifier-3090 (RTX 3090, 24 GB)
+# Qwen3-Embedding-4B — embedding server for classifier-3090 (RTX 3090, 24 GB)
 #
 # Standalone stack, separate from the main on-prem-workhorse compose.
 # Local only: bound to the LAN (192.168.1.138:8091), no Cloudflare tunnel.
 #
-# Uses the official prebuilt llama.cpp CUDA image — NOT deploy/Dockerfile,
-# because that image is CUDA 13.0 and this box runs driver 570 (CUDA 12.x max).
+# Engine: HuggingFace Text Embeddings Inference (TEI) — high-throughput dynamic
+# batching (~7.2k tok/s on this 3090 vs ~2k for the old llama.cpp single-slot 8B).
+#
+# IMPORTANT pins for this box:
+#   * image tag 86-1.8 -> CUDA 12.2. Do NOT use 86-1.9 (CUDA 12.9): driver 570
+#     maxes at CUDA 12.8, so 1.9 attempts forward-compat and falls back to CPU
+#     on this GeForce 3090.
+#   * runtime: nvidia (NOT `--gpus all`, which does not attach the GPU here).
+#   * this box has only ~15 GB system RAM — run ONE embedding model at a time;
+#     two stacks at once thrash swap and hang the host.
+#
+# To revert to the old llama.cpp 8B: restore docker-compose.llama-8b.yml.bak.
 services:
   embeddings:
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    image: ghcr.io/huggingface/text-embeddings-inference:86-1.8
     container_name: embeddings
     restart: unless-stopped
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      # Image ships its .so files in /app but does not put /app on the
-      # linker path — without this, llama-server fails to start (exit 127).
-      - LD_LIBRARY_PATH=/app
     volumes:
-      - ./models:/models
+      - ./data:/data            # HF model cache (Qwen3-Embedding-4B, ~7.6 GB)
     ports:
-      - "8091:8091"
+      - "8091:80"               # TEI serves on :80 inside; external endpoint unchanged
     command:
-      - -m
-      - /models/Qwen3-Embedding-8B-Q8_0.gguf
-      - --embedding
+      - --model-id
+      - Qwen/Qwen3-Embedding-4B
       - --pooling
-      - last          # Qwen3-Embedding uses last-token pooling
-      - -ngl
-      - "999"         # all layers on GPU — 8B Q8_0 (~9 GB) fits easily in 24 GB
-      - -c
-      - "8192"        # context = max input length per embed request
-      - -b
-      - "8192"
-      - -ub
-      - "8192"        # ubatch >= context — required for non-causal embedding
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8091"
+      - last-token              # Qwen3-Embedding uses last-token pooling
+      - --dtype
+      - float16
+      - --auto-truncate
+      - --max-client-batch-size
+      - "256"
+      - --max-batch-tokens
+      - "16384"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8091/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
+      start_period: 120s
