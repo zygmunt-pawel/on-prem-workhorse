@@ -21,10 +21,10 @@ services:
       retries: 3
       start_period: 30s
 
-  # Gemma 4 31B (Unsloth UD-Q6_K_XL) via official llama.cpp
+  # Gemma 4 31B (Unsloth UD-Q6_K_XL) + MTP speculative decoding via official llama.cpp
   # Built with CUDA 13.0 + sm_89 PTX fallback (native sm_120 has nvcc O3 bug)
-  # 128k context, single slot
-  # NOTE: service name kept as "ik-llama" to match Cloudflare tunnel routing config
+  # 64k context, single slot. LAN-only — no tunnel, no public exposure.
+  # NOTE: historical service name; runs upstream llama.cpp, not ik_llama.cpp
   ik-llama:
     build:
       context: ./deploy
@@ -38,6 +38,8 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - MODEL_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
       - HF_MODEL_URL=${HF_MODEL_URL}
+      - DRAFT_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q8_0-MTP.gguf
+      - HF_DRAFT_URL=${HF_DRAFT_URL}
     volumes:
       - ${MODEL_DIR}:/models
     ports:
@@ -50,7 +52,7 @@ services:
       - -fa
       - "1"         # flash attention (~2x prompt speed)
       - -c
-      - "131072"    # 128k context, single slot
+      - "65536"     # 64k context — frees ~2.5GB KV so the MTP draft fits next to Q6
       - -ctk
       - q4_0        # KV cache 4-bit — saves ~3 GB VRAM vs q8_0
       - -ctv
@@ -60,13 +62,14 @@ services:
       - --port
       - "8090"
       - -np
-      - "1"         # single slot — full 128k context for one request
+      - "1"         # single slot — full 64k context for one request
       - --spec-type
-      - ngram-simple # n-gram speculative decoding (free speedup on repetitive text)
-      - --draft-max
-      - "16"
-      - --draft-min
-      - "4"
+      - draft-mtp   # MTP speculative decoding — dedicated draft head trained with
+                    # the model; measured 2-2.3x generation speedup vs ngram-simple,
+                    # lossless (main model verifies every draft token).
+                    # Requires llama.cpp master >= 2026-06-07 (Gemma4 MTP support).
+      - -md
+      - /models/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q8_0-MTP.gguf
       - --api-key
       - ${API_KEY}
     healthcheck:
@@ -75,21 +78,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 300s # model load + warmup takes a while
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared
-    restart: unless-stopped
-    depends_on:
-      ik-llama:
-        condition: service_healthy
-    command:
-      - tunnel
-      - run
-      - --token
-      - ${CLOUDFLARE_TUNNEL_TOKEN}
-    environment:
-      - TUNNEL_URL=http://ik-llama:8090
 
 volumes:
   models_data:
