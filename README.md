@@ -11,15 +11,28 @@ All configuration and secrets live in a local `.env` file on the host.
 
 ## Architecture
 
+Two GPU boxes on the LAN, each running its own `docker compose` stack:
+
 ```
    Host: classifier-gpu (RTX 5090, 192.168.1.15)      docker compose
    ┌────────────────────────────────────────────────────────────┐
-   │  ik-llama     :8090   Gemma 4 31B + MTP  (GPU, ~30 GB VRAM) │
+   │  ik-llama     :8090   Gemma 4 31B dense + MTP  (~30 GB VRAM)│
    │  scraper      :3000   Playwright + HTML→Markdown            │
    └────────────────────────────────────────────────────────────┘
+
+   Host: classifier-3090 (RTX 3090, 192.168.1.138)    docker compose
+   ┌────────────────────────────────────────────────────────────┐
+   │  ik-llama     :8090   Gemma 4 26B-A4B + MTP   (~18.5 GB VRAM)│
+   └────────────────────────────────────────────────────────────┘
                               │
-   LAN clients ───────────────┘  http://192.168.1.15:{8090,3000}
+   LAN clients ───────────────┘  same API_KEY → either box, interchangeably
 ```
+
+The 3090 box is a **second, faster/cheaper LLM node** (the 26B MoE has only 4B
+active params → ~128–156 tok/s vs the 31B dense's ~86–125). Same OpenAI API,
+same key — clients pick a box by IP. Its stack lives in `deploy/llm-3090/`; see
+that directory's README for the box-specific build (CUDA 12.8, `sm_86`) and the
+full rationale.
 
 Everything runs as Docker containers defined in `docker-compose.yml`. Both
 ports are published on the host's LAN address only — nothing is reachable from
@@ -174,9 +187,10 @@ docker-compose.yml   # the 2-service stack: scraper, ik-llama
 .env.example         # config template — copy to .env and fill in
 Dockerfile           # scraper image
 deploy/
-  Dockerfile         # llama.cpp + CUDA image (used by ik-llama)
+  Dockerfile         # llama.cpp + CUDA image (CUDA_TAG/CUDA_ARCH build args; used by both boxes)
   entrypoint.sh      # downloads model + MTP draft GGUFs on first run, then starts llama-server
-  embeddings-3090/   # compose for the separate embeddings box (RTX 3090)
+  llm-3090/          # compose for the RTX 3090 box: Gemma 4 26B-A4B Q4 + MTP, CUDA 12.8 build
+  embeddings-3090/   # legacy embeddings stack for the 3090 (retired — replaced by llm-3090/)
 src/                 # scraper source (TypeScript) — see AGENTS.md
 Makefile             # scraper test/dev targets
 ```
