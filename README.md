@@ -49,7 +49,7 @@ the internet.
 All other endpoints require the key. The LLM uses `API_KEY`; the scraper has
 its own (`SCRAPER_API_KEY`).
 
-### LLM — `:8090`
+### LLM (5090) — `192.168.1.15:8090`
 
 OpenAI-compatible server (`llama.cpp`) running **Gemma 4 31B-it** (Unsloth
 `UD-Q6_K_XL` GGUF). All layers offloaded to the GPU, 64k context, single
@@ -81,6 +81,39 @@ Notes:
 - **Cold start is slow.** The build targets `sm_89` (Ada) PTX; on the RTX 5090
   (Blackwell `sm_120`) CUDA kernels JIT-compile on the first request, which can
   take ~80 s. Subsequent requests run at full speed.
+
+### Second LLM node (3090) — `192.168.1.138:8090`
+
+A second box (`classifier-3090`, RTX 3090, 24 GB) runs **Gemma 4 26B-A4B-it**
+(Unsloth `UD-Q4_K_XL`) + MTP — the **same llama.cpp engine, same flags, same
+`API_KEY`** as the 5090, just a smaller model. The 26B is a Mixture-of-Experts
+with only **4B active params**, so it is faster and fits 24 GB where the 31B
+dense Q6 (~30 GB) would not. Use it as the faster/cheaper node; the 5090's dense
+model when you want maximum quality. Clients pick a box by IP.
+
+```bash
+# identical request shape — only the host differs
+curl http://192.168.1.138:8090/v1/chat/completions \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":2000}'
+```
+
+| | 5090 — `192.168.1.15:8090` | 3090 — `192.168.1.138:8090` |
+|---|---|---|
+| Model | Gemma 4 31B **dense** Q6 | Gemma 4 26B-**A4B** (MoE, 4B active) Q4 |
+| Gen speed | ~86–125 tok/s | ~128–156 tok/s |
+| VRAM | ~30 / 32 GB | ~18.5 / 24 GB |
+| Context | 64k | 64k |
+
+Measured on the 3090: generation **128–156 tok/s** (MTP draft accept 53–67%),
+prompt processing **~3090 tok/s**. The stack, the box-specific build (CUDA 12.8
+for driver 570, native `sm_86`), deploy steps, and reboot behaviour are
+documented in **[`deploy/llm-3090/README.md`](deploy/llm-3090/README.md)**.
+
+> **Auto-starts on reboot.** Both LLM boxes use `restart: unless-stopped` with
+> Docker enabled on boot and the model GGUFs persisted on disk — after a reboot
+> the container returns and reloads from disk (no re-download), no manual step.
 
 ### Scraper — `:3000`
 
