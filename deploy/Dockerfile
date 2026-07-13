@@ -1,10 +1,7 @@
-# Official llama.cpp with a configurable CUDA toolkit + GPU arch.
-# Defaults target the RTX 5090 box: CUDA 13.0, sm_89 (Ada PTX fallback — native
-# sm_120 Blackwell kernels are broken by an nvcc O3 optimizer bug,
-# https://github.com/ggml-org/llama.cpp/issues/18331; when fixed, set CUDA_ARCH=120
-# for ~30% faster prompt processing).
-# Override both args for other GPUs — e.g. the RTX 3090 box, whose driver 570
-# caps at CUDA 12.8, so a 13.0 image would fail to init: CUDA_TAG=12.8.0, CUDA_ARCH=86.
+# Legacy llama.cpp image with a configurable CUDA toolkit + GPU arch.
+# The primary RTX 5090 deployment now uses deploy/vllm; this image remains for
+# the RTX 3090 stack. Its driver 570 caps at CUDA 12.8, so that compose file
+# overrides the defaults with CUDA_TAG=12.8.0 and CUDA_ARCH=86.
 ARG CUDA_TAG=13.0.0
 FROM nvidia/cuda:${CUDA_TAG}-devel-ubuntu24.04 AS builder
 
@@ -14,10 +11,19 @@ RUN apt-get update && apt-get install -y \
 
 ARG LLAMA_REPO=https://github.com/ggml-org/llama.cpp.git
 ARG LLAMA_BRANCH=master
+ARG LLAMA_COMMIT=
 ARG CUDA_ARCH=89
 ARG BUILD_JOBS=    # empty -> use all cores; set lower on RAM-tight boxes (3090: 15 GB) to avoid OOM
 
-RUN git clone --depth 1 -b ${LLAMA_BRANCH} ${LLAMA_REPO} /build/llama.cpp
+RUN git init /build/llama.cpp \
+    && cd /build/llama.cpp \
+    && git remote add origin ${LLAMA_REPO} \
+    && if [ -n "${LLAMA_COMMIT}" ]; then \
+         git fetch --depth 1 origin ${LLAMA_COMMIT}; \
+       else \
+         git fetch --depth 1 origin ${LLAMA_BRANCH}; \
+       fi \
+    && git checkout --detach FETCH_HEAD
 
 WORKDIR /build/llama.cpp
 

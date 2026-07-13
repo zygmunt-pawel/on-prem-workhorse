@@ -11,12 +11,11 @@ decoding** via upstream `llama.cpp` on the box `classifier-3090` (RTX 3090,
 - **Model:** `gemma-4-26B-A4B-it` — 26B MoE, **4B active**, Q4_K_XL, 64k context
 - **Auth:** `Authorization: Bearer <API_KEY>`
 
-## Why A4B Q4 (not the 5090's 31B dense Q6)
+## Why A4B Q4 (not the 5090's A4B NVFP4 deployment)
 
-The 5090 serves `gemma-4-31B-it` dense at Q6 + MTP + 64k ≈ **30 GB** — that does
-not fit in a 24 GB 3090. The 26B **MoE** has only **4B active params**, so it is
-fast even here, with quality close to the 31B dense. At Q4_K_XL it fits with the
-same flags and the same 64k context:
+The 5090 serves the same `gemma-4-26B-A4B-it` architecture with native NVFP4
+weights, MTP, and eight 32k slots, reserving about **30.4 GiB** — over the
+capacity of a 24 GB 3090. This box uses Q4_K_XL with one 64k slot instead:
 
 | Component | VRAM |
 |---|---|
@@ -27,7 +26,7 @@ same flags and the same 64k context:
 
 ## No OOM-after-hours — VRAM is bounded by design
 
-Same flags as the 5090. The VRAM ceiling is fixed **at load**, it does not grow:
+On this box the VRAM ceiling is fixed **at load**, it does not grow:
 
 - `-c 65536` — the KV cache is **pre-allocated** to the full 64k up front. It
   occupies its maximum from the first second; it never grows with traffic.
@@ -44,8 +43,7 @@ These are set in `docker-compose.yml` / `deploy/Dockerfile`, no manual action:
 
 - **`CUDA_TAG=12.8.0`** — driver `570.195.03` caps at CUDA 12.8. The default
   CUDA **13.0** image fails to initialise here; the build overrides it to 12.8.
-- **`CUDA_ARCH=86`** — native Ampere (`sm_86`), so no first-request JIT compile
-  (the 5090's ~80 s cold start was Blackwell JIT; this box warms up faster).
+- **`CUDA_ARCH=86`** — native Ampere (`sm_86`), so no first-request JIT compile.
 - **`runtime: nvidia`** — `--gpus all` does **not** attach the GPU on this box.
 - **Do not add `--no-mmap`** — only ~15 GB system RAM; forcing the 17 GB model
   into host RAM would OOM the host. Default mmap streams the weights to VRAM.
@@ -101,9 +99,9 @@ curl http://192.168.1.138:8090/v1/chat/completions \
 
 ## Notes
 
-- **HF download URLs are by-analogy guesses** (the Unsloth A4B repo, mirroring
-  the 31B repo layout). The reliable path is the `rsync` in step 3 from the 5090,
-  where both files are confirmed present. Verify the URLs before depending on them.
+- **HF download URLs target the verified Unsloth A4B GGUF repository.** The
+  `rsync` path in step 3 remains the fastest way to copy files already present
+  on the 5090 box.
 - **Thinking model.** Responses carry a `reasoning_content` field separate from
   `content`. Give a generous `max_tokens` or `content` can come back empty.
 - **If VRAM is tighter than expected** (KV larger on this arch), drop to a 48k or

@@ -1,0 +1,37 @@
+--- llm_base_proposer.py.orig
++++ llm_base_proposer.py
+@@ -1478,7 +1478,21 @@
+                 ):
+                     target_dim = target_embed_tokens.weight.shape[-1]
+                     draft_dim = draft_embed.weight.shape[-1]
+-                    if target_dim != draft_dim:
++                    # Gemma4's official assistant intentionally has a
++                    # draft-width embedding for its tied lm_head, while its
++                    # pre_projection consumes the target-width token
++                    # embedding together with the target hidden state.  The
++                    # lm_head keeps a reference to the original draft
++                    # embedding parameter, so replacing embed_tokens here is
++                    # both required and safe for Gemma4MTP.
++                    gemma4_uses_backbone_embed = (
++                        self.model.__class__.__name__ == "Gemma4MTP"
++                        and getattr(
++                            self.model.model, "backbone_hidden_size", None
++                        )
++                        == target_dim
++                    )
++                    if target_dim != draft_dim and not gemma4_uses_backbone_embed:
+                         share_embeddings = False
+                         logger.info(
+                             "Target embedding dim (%d) differs from draft "
+@@ -1487,3 +1501,11 @@
+                             target_dim,
+                             draft_dim,
+                         )
++                    elif target_dim != draft_dim:
++                        logger.info(
++                            "Gemma4 MTP requires target-width input embeddings "
++                            "(%d); preserving the draft-width (%d) tensor via "
++                            "its tied lm_head.",
++                            target_dim,
++                            draft_dim,
++                        )

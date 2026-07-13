@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-MODEL_PATH="${MODEL_PATH:-/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf}"
-HF_MODEL_URL="${HF_MODEL_URL:-https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/gemma-4-31B-it-UD-Q6_K_XL.gguf}"
-DRAFT_PATH="${DRAFT_PATH:-/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q8_0-MTP.gguf}"
-HF_DRAFT_URL="${HF_DRAFT_URL:-https://huggingface.co/unsloth/gemma-4-31B-it-GGUF/resolve/main/MTP/gemma-4-31B-it-Q8_0-MTP.gguf}"
+MODEL_PATH="${MODEL_PATH:-/models/gemma-4-26B-A4B-it-GGUF/gemma-4-26B-A4B-it-UD-Q6_K_XL.gguf}"
+HF_MODEL_URL="${HF_MODEL_URL:-https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-Q6_K_XL.gguf}"
+DRAFT_PATH="${DRAFT_PATH:-/models/gemma-4-26B-A4B-it-GGUF/mtp-gemma-4-26B-A4B-it-Q8_0.gguf}"
+HF_DRAFT_URL="${HF_DRAFT_URL:-https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/MTP/mtp-gemma-4-26B-A4B-it-Q8_0.gguf}"
 
 fetch() {
     local path="$1" url="$2"

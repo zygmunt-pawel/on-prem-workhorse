@@ -21,63 +21,64 @@ services:
       retries: 3
       start_period: 30s
 
-  # Gemma 4 31B (Unsloth UD-Q6_K_XL) + MTP speculative decoding via official llama.cpp
-  # Built with CUDA 13.0 + sm_89 PTX fallback (native sm_120 has nvcc O3 bug)
-  # 64k context, single slot. LAN-only — no tunnel, no public exposure.
-  # NOTE: historical service name; runs upstream llama.cpp, not ik_llama.cpp
+  # Gemma 4 26B-A4B, NVIDIA NVFP4 weights + Google's official MTP assistant.
+  # vLLM selects FLASHINFER_CUTLASS on the RTX 5090; eight parallel 32k slots.
+  # NOTE: historical service name retained so existing compose commands keep working.
   ik-llama:
+    image: on-prem-workhorse-vllm:v0.25.0-gemma4-mtp
     build:
-      context: ./deploy
+      context: ./deploy/vllm
       dockerfile: Dockerfile
       args:
-        CUDA_ARCH: "89" # Ada PTX — Blackwell JIT compiles at runtime. Native 120 broken (nvcc bug)
+        VLLM_IMAGE: vllm/vllm-openai:v0.25.0
     container_name: ik-llama
     restart: unless-stopped
     runtime: nvidia
+    ipc: host
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
-      - MODEL_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
-      - HF_MODEL_URL=${HF_MODEL_URL}
-      - DRAFT_PATH=/models/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q8_0-MTP.gguf
-      - HF_DRAFT_URL=${HF_DRAFT_URL}
+      - VLLM_NO_USAGE_STATS=1
+      - DO_NOT_TRACK=1
     volumes:
-      - ${MODEL_DIR}:/models
+      - ${MODEL_DIR}/hf:/models:ro
+      - ${VLLM_CACHE_DIR:-/home/pawel/.cache/vllm-gemma4-bench}:/root/.cache
     ports:
-      - "8090:8090"
+      - "8090:8000"
     command:
-      - -m
-      - /models/gemma-4-31B-it-GGUF/gemma-4-31B-it-UD-Q6_K_XL.gguf
-      - -ngl
-      - "999"       # all layers on GPU
-      - -fa
-      - "1"         # flash attention (~2x prompt speed)
-      - -c
-      - "65536"     # 64k context — frees ~2.5GB KV so the MTP draft fits next to Q6
-      - -ctk
-      - q4_0        # KV cache 4-bit — saves ~3 GB VRAM vs q8_0
-      - -ctv
-      - q4_0
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8090"
-      - -np
-      - "1"         # single slot — full 64k context for one request
-      - --spec-type
-      - draft-mtp   # MTP speculative decoding — dedicated draft head trained with
-                    # the model; measured 2-2.3x generation speedup vs ngram-simple,
-                    # lossless (main model verifies every draft token).
-                    # Requires llama.cpp master >= 2026-06-07 (Gemma4 MTP support).
-      - -md
-      - /models/gemma-4-31B-it-GGUF/gemma-4-31B-it-Q8_0-MTP.gguf
+      - --model
+      - /models/Gemma-4-26B-A4B-NVFP4
+      - --served-model-name
+      - gemma-4-26B-A4B-it
+      - Gemma-4-26B-A4B-NVFP4
+      - gemma-4-31B-it-UD-Q6_K_XL.gguf
+      - gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf
+      - --trust-remote-code
+      - --language-model-only
+      - --max-model-len
+      - "32768"
+      - --max-num-seqs
+      - "8"
+      - --max-num-batched-tokens
+      - "8192"
+      - --gpu-memory-utilization
+      - "0.95"
+      - --kv-cache-dtype
+      - fp8
+      - --moe-backend
+      - auto
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --speculative-config
+      - '{"method":"mtp","model":"/models/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
       - --api-key
       - ${API_KEY}
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8090/health"]
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
-      start_period: 300s # model load + warmup takes a while
+      start_period: 180s # model load + cached CUDA graph restore
 
 volumes:
   models_data:

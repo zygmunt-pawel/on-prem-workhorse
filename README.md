@@ -4,7 +4,7 @@ Self-hosted inference stack running on a single GPU machine, **LAN-only by
 design** — no tunnel, no public exposure, no cloud dependencies. Provides two
 services:
 
-- **LLM** — Gemma 4 31B chat completions (OpenAI-compatible API)
+- **LLM** — Gemma 4 26B-A4B chat completions (OpenAI-compatible API)
 - **Scraper** — website → LLM-ready Markdown microservice
 
 All configuration and secrets live in a local `.env` file on the host.
@@ -16,7 +16,7 @@ Two GPU boxes on the LAN, each running its own `docker compose` stack:
 ```
    Host: classifier-gpu (RTX 5090, 192.168.1.15)      docker compose
    ┌────────────────────────────────────────────────────────────┐
-   │  ik-llama     :8090   Gemma 4 31B dense + MTP  (~30 GB VRAM)│
+   │  ik-llama     :8090   Gemma 4 26B-A4B NVFP4 + MTP (~30 GB VRAM)│
    │  scraper      :3000   Playwright + HTML→Markdown            │
    └────────────────────────────────────────────────────────────┘
 
@@ -28,11 +28,10 @@ Two GPU boxes on the LAN, each running its own `docker compose` stack:
    LAN clients ───────────────┘  same API_KEY → either box, interchangeably
 ```
 
-The 3090 box is a **second, faster/cheaper LLM node** (the 26B MoE has only 4B
-active params → ~128–156 tok/s vs the 31B dense's ~86–125). Same OpenAI API,
-same key — clients pick a box by IP. Its stack lives in `deploy/llm-3090/`; see
-that directory's README for the box-specific build (CUDA 12.8, `sm_86`) and the
-full rationale.
+The 3090 box is a **second LLM node** running the same 26B-A4B architecture in
+GGUF Q4. The 5090 uses native Blackwell NVFP4 kernels and vLLM continuous
+batching. Both expose the same OpenAI API and key; clients pick a box by IP.
+The 3090 stack lives in `deploy/llm-3090/`.
 
 Everything runs as Docker containers defined in `docker-compose.yml`. Both
 ports are published on the host's LAN address only — nothing is reachable from
@@ -51,45 +50,44 @@ its own (`SCRAPER_API_KEY`).
 
 ### LLM (5090) — `192.168.1.15:8090`
 
-OpenAI-compatible server (`llama.cpp`) running **Gemma 4 31B-it** (Unsloth
-`UD-Q6_K_XL` GGUF). All layers offloaded to the GPU, 64k context, single
-request slot, flash attention, 4-bit KV cache, **MTP speculative decoding**
-(a dedicated draft head trained with the model — `-md` flag).
+OpenAI-compatible **vLLM 0.25.0** server running NVIDIA's
+**Gemma 4 26B-A4B NVFP4** checkpoint with Google's official Gemma 4 assistant
+for **MTP speculative decoding**. It accepts eight concurrent requests with up
+to 32k context each, uses FP8 KV cache, CUDA graphs, prefix caching, chunked
+prefill, asynchronous scheduling, and the `FLASHINFER_CUTLASS` NVFP4 MoE
+kernel selected natively on the RTX 5090.
 
 ```bash
 curl http://192.168.1.15:8090/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
-  -d '{"messages":[{"role":"user","content":"Hello"}],"max_tokens":200}'
+  -d '{"model":"gemma-4-26B-A4B-it","messages":[{"role":"user","content":"Hello"}],"max_tokens":200}'
 ```
 
 Endpoints: `/v1/chat/completions`, `/v1/models`, `/health`.
 
 Notes:
-- **MTP speculative decoding** gives a measured 2–2.3× generation speedup over
-  the previous n-gram setup (~86–125 tok/s vs ~45–54, biggest gain on
-  structured/JSON output) at identical quality — the main model verifies every
-  draft token, so output is bit-equivalent to running without it. Requires
-  llama.cpp master ≥ 2026-06-07 (Gemma4 MTP support).
-- **Context is 64k, not 128k.** The Q6 weights + 128k KV cache + MTP draft do
-  not fit in 32 GB VRAM together; halving the context frees the ~2.5 GB the
-  draft needs. If you need 128k back, switch to the `UD-Q5_K_XL` GGUF (same
-  measured speed, one quant level lower) or drop the `-md`/`--spec-type` args.
+- **MTP uses four speculative tokens.** Matched warm tests measured ~245 tok/s
+  for one long response and ~1,435 tok/s aggregate for eight unrelated long
+  prompts. Eight constrained-JSON requests reached ~1,811 tok/s. MTP values 1
+  through 6 were tested; four was the fastest and most stable general setting.
+- **Context is 8 × 32k.** The production FP8 KV cache holds about 289k tokens
+  (8.82 theoretical 32k sequences), so eight full request contexts fit. The
+  running process reserves about 30.4 of 32.6 GiB VRAM, including the KV pool.
 - **Thinking model.** Responses contain a `reasoning_content` field separate
   from `content`. Give a generous `max_tokens` — with a small budget the whole
   allowance can be spent on reasoning and `content` comes back empty.
-- **Cold start is slow.** The build targets `sm_89` (Ada) PTX; on the RTX 5090
-  (Blackwell `sm_120`) CUDA kernels JIT-compile on the first request, which can
-  take ~80 s. Subsequent requests run at full speed.
+- **Blackwell FP4.** Weights use NVFP4 and vLLM selects FLASHINFER_CUTLASS on
+  SM120. The FlashInfer TRT-LLM MoE kernel and NVFP4 KV path currently reject
+  the RTX 5090, so FP8 KV is intentional. The GPU stays below the 450 W power
+  limit in measured inference; raising it to 600 W did not improve throughput.
 
 ### Second LLM node (3090) — `192.168.1.138:8090`
 
-A second box (`classifier-3090`, RTX 3090, 24 GB) runs **Gemma 4 26B-A4B-it**
-(Unsloth `UD-Q4_K_XL`) + MTP — the **same llama.cpp engine, same flags, same
-`API_KEY`** as the 5090, just a smaller model. The 26B is a Mixture-of-Experts
-with only **4B active params**, so it is faster and fits 24 GB where the 31B
-dense Q6 (~30 GB) would not. Use it as the faster/cheaper node; the 5090's dense
-model when you want maximum quality. Clients pick a box by IP.
+A second box (`classifier-3090`, RTX 3090, 24 GB) runs the same **Gemma 4
+26B-A4B-it** architecture with the smaller Unsloth `UD-Q4_K_XL` quant and MTP.
+It uses the same OpenAI API and `API_KEY`; clients pick a box by IP. The Q4
+weights fit the 24 GB card, while the 5090 uses the NVFP4 vLLM checkpoint.
 
 ```bash
 # identical request shape — only the host differs
@@ -101,10 +99,10 @@ curl http://192.168.1.138:8090/v1/chat/completions \
 
 | | 5090 — `192.168.1.15:8090` | 3090 — `192.168.1.138:8090` |
 |---|---|---|
-| Model | Gemma 4 31B **dense** Q6 | Gemma 4 26B-**A4B** (MoE, 4B active) Q4 |
-| Gen speed | ~86–125 tok/s | ~128–156 tok/s |
-| VRAM | ~30 / 32 GB | ~18.5 / 24 GB |
-| Context | 64k | 64k |
+| Model | Gemma 4 26B-**A4B** NVFP4 | Gemma 4 26B-**A4B** GGUF Q4 |
+| Gen speed | ~245 tok/s single; ~1,435 aggregate at 8× | ~128–156 tok/s |
+| VRAM | ~30.4 / 32.6 GiB (including reserved KV) | ~18.5 / 24 GB |
+| Context | 8 × 32k (256k total) | 64k |
 
 Measured on the 3090: generation **128–156 tok/s** (MTP draft accept 53–67%),
 prompt processing **~3090 tok/s**. The stack, the box-specific build (CUDA 12.8
@@ -112,7 +110,7 @@ for driver 570, native `sm_86`), deploy steps, and reboot behaviour are
 documented in **[`deploy/llm-3090/README.md`](deploy/llm-3090/README.md)**.
 
 > **Auto-starts on reboot.** Both LLM boxes use `restart: unless-stopped` with
-> Docker enabled on boot and the model GGUFs persisted on disk — after a reboot
+> Docker enabled on boot and the model files persisted on disk — after a reboot
 > the container returns and reloads from disk (no re-download), no manual step.
 
 ### Scraper — `:3000`
@@ -143,8 +141,9 @@ scraper's request/response schema, error codes, and internals.
 ### First-time setup on a new machine
 
 Requirements: Docker with the NVIDIA Container Toolkit (the LLM container needs
-`runtime: nvidia`) and an NVIDIA GPU with enough VRAM (~30 GB for the current
-model + draft + 64k KV cache).
+`runtime: nvidia`) and an NVIDIA GPU with enough VRAM (~31 GB including the
+preallocated KV pool for this RTX 5090 configuration). The two Gemma repositories
+require accepting their Hugging Face terms before downloading.
 
 ```bash
 git clone git@github.com:zygmunt-pawel/on-prem-workhorse.git
@@ -154,6 +153,13 @@ cd on-prem-workhorse
 cp .env.example .env
 $EDITOR .env
 
+# Download the target and official MTP assistant once. Paths must match
+# MODEL_DIR/hf in docker-compose.yml.
+hf download nvidia/Gemma-4-26B-A4B-NVFP4 \
+  --local-dir /home/pawel/models/hf/Gemma-4-26B-A4B-NVFP4
+hf download google/gemma-4-26B-A4B-it-assistant \
+  --local-dir /home/pawel/models/hf/gemma-4-26B-A4B-it-assistant
+
 # Build images and start everything
 docker compose up -d --build
 ```
@@ -161,11 +167,10 @@ docker compose up -d --build
 `docker compose` reads `.env` automatically. The file is gitignored and is
 never committed — it holds the API keys.
 
-On first start the LLM container downloads the model GGUF and the MTP draft
-GGUF from Hugging Face (`HF_MODEL_URL`, `HF_DRAFT_URL`) into `MODEL_DIR` if not
-already present. The main model is a large download — the container is not
-healthy until it finishes and the model has loaded (the healthcheck allows a
-300 s start period).
+The snapshots persist below `MODEL_DIR/hf`; container restarts do not download
+them again. vLLM stores compiled CUDA graphs below `VLLM_CACHE_DIR`, making
+later starts substantially faster than the first compile. The healthcheck
+allows a 180 s start period.
 
 ### Updating
 
@@ -174,10 +179,10 @@ git pull
 docker compose up -d --build
 ```
 
-The llama.cpp image builds from current `master` at build time — after a long
-gap, expect upstream flag renames (e.g. `--draft-max`/`--draft-min` were
-removed in mid-2026 in favour of `--spec-*`). If the container crashloops after
-a rebuild, check `docker logs ik-llama` for argument errors first.
+The RTX 5090 image pins vLLM to `v0.25.0` and applies the small Gemma 4 MTP
+embedding-width compatibility patch from `deploy/vllm/`. Update the base image
+and revalidate the patch deliberately. If the container crashloops after a
+rebuild, check `docker logs ik-llama` first.
 
 ## Configuration — `.env`
 
@@ -188,9 +193,8 @@ Copy `.env.example` to `.env` and fill in:
 | `API_KEY` | Key for the LLM service (`Bearer` auth) |
 | `SCRAPER_API_KEY` | Key for the scraper service (`x-api-key` auth) |
 | `PROXY_URL` | Optional HTTP/HTTPS proxy for the scraper's Playwright browser |
-| `HF_MODEL_URL` | Hugging Face URL of the LLM GGUF (downloaded on first run) |
-| `HF_DRAFT_URL` | Hugging Face URL of the MTP draft GGUF (downloaded on first run) |
-| `MODEL_DIR` | Host directory mounted into the containers as `/models` |
+| `MODEL_DIR` | Host root containing the two snapshots below `MODEL_DIR/hf` |
+| `VLLM_CACHE_DIR` | Persistent vLLM compile/CUDA graph cache directory |
 
 If `SCRAPER_API_KEY` is empty, the scraper registers **no** auth hook and every
 endpoint becomes open — keep it set. Same applies to `API_KEY` for the LLM.
@@ -220,8 +224,9 @@ docker-compose.yml   # the 2-service stack: scraper, ik-llama
 .env.example         # config template — copy to .env and fill in
 Dockerfile           # scraper image
 deploy/
-  Dockerfile         # llama.cpp + CUDA image (CUDA_TAG/CUDA_ARCH build args; used by both boxes)
-  entrypoint.sh      # downloads model + MTP draft GGUFs on first run, then starts llama-server
+  vllm/              # RTX 5090 vLLM image + focused Gemma 4 MTP patch
+  Dockerfile         # legacy llama.cpp CUDA image used by the 3090 deployment
+  entrypoint.sh      # legacy llama.cpp model downloader/launcher
   llm-3090/          # compose for the RTX 3090 box: Gemma 4 26B-A4B Q4 + MTP, CUDA 12.8 build
   embeddings-3090/   # legacy embeddings stack for the 3090 (retired — replaced by llm-3090/)
 src/                 # scraper source (TypeScript) — see AGENTS.md
