@@ -1,0 +1,45 @@
+name: on-prem-workhorse-cloudflared
+
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:2026.7.3
+    container_name: cloudflared
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:2000
+      - --loglevel
+      - info
+      - --config
+      - /etc/cloudflared/config.yml
+      - run
+    volumes:
+      - ./config.yml:/etc/cloudflared/config.yml:ro
+      - /home/pawel/.cloudflared/ca500d27-9a93-440c-9023-e1729c249e1e.json:/etc/cloudflared/credentials.json:ro
+    healthcheck:
+      test:
+        - CMD
+        - cloudflared
+        - tunnel
+        - --metrics
+        - 127.0.0.1:2000
+        - ready
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

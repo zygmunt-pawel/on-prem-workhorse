@@ -1,0 +1,17 @@
+tunnel: ca500d27-9a93-440c-9023-e1729c249e1e
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  # Keep the public surface limited to the OpenAI-compatible API and health.
+  - hostname: model.leads.run
+    path: ^/health$
+    service: http://127.0.0.1:8090
+  - hostname: model.leads.run
+    path: ^/v1/
+    service: http://127.0.0.1:8090
+    originRequest:
+      connectTimeout: 10s
+      tcpKeepAlive: 30s
+      keepAliveConnections: 100
+      keepAliveTimeout: 90s
+  - service: http_status:404

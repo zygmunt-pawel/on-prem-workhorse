@@ -1,21 +1,32 @@
 # on-prem-workhorse
 
-Self-hosted inference stack running on a single GPU machine, **LAN-only by
-design** — no tunnel, no public exposure, no cloud dependencies. Provides two
-services:
+Self-hosted inference stack with LAN-only origins. The RTX 5090 LLM is also
+published at `https://model.leads.run` through an outbound-only Cloudflare
+Tunnel; the scraper and RTX 3090 node remain private to the LAN. The stack
+provides two application services:
 
 - **LLM** — Gemma 4 26B-A4B chat completions (OpenAI-compatible API)
 - **Scraper** — website → LLM-ready Markdown microservice
 
-All configuration and secrets live in a local `.env` file on the host.
+Application configuration and API keys live in a local `.env` file on the
+host. The tunnel-specific credential is stored separately under
+`/home/pawel/.cloudflared/` and is never committed.
 
 ## Architecture
 
-Two GPU boxes on the LAN, each running its own `docker compose` stack:
+Two GPU boxes are on the LAN. Only the 5090 LLM has a public ingress:
 
 ```
+   Internet clients
+          │
+   https://model.leads.run
+          │
+   Cloudflare edge
+          │ outbound named tunnel (no router port forwarding)
+          ▼
    Host: classifier-gpu (RTX 5090, 192.168.1.15)      docker compose
    ┌────────────────────────────────────────────────────────────┐
+   │  cloudflared          named tunnel → 127.0.0.1:8090        │
    │  ik-llama     :8090   Gemma 4 26B-A4B NVFP4 + MTP (~30 GB VRAM)│
    │  scraper      :3000   Playwright + HTML→Markdown            │
    └────────────────────────────────────────────────────────────┘
@@ -33,20 +44,22 @@ GGUF Q4. The 5090 uses native Blackwell NVFP4 kernels and vLLM continuous
 batching. Both expose the same OpenAI API and key; clients pick a box by IP.
 The 3090 stack lives in `deploy/llm-3090/`.
 
-Everything runs as Docker containers defined in `docker-compose.yml`. Both
-ports are published on the host's LAN address only — nothing is reachable from
-the internet.
+The application containers are defined in `docker-compose.yml`. The named
+tunnel runs from `deploy/cloudflared/docker-compose.yml`; it makes outbound
+connections to Cloudflare and requires no inbound router or firewall rule.
+Direct host ports remain available on the LAN.
 
 ## Services
 
-| Service | Container | Host port | Auth header |
-|---|---|---|---|
-| LLM | `ik-llama` | 8090 | `Authorization: Bearer <API_KEY>` |
-| Scraper | `scraper` | 3000 | `x-api-key: <SCRAPER_API_KEY>` |
+| Service | Container | Host port | Public route | Auth header |
+|---|---|---|---|---|
+| LLM | `ik-llama` | 8090 | `https://model.leads.run/v1/*` | `Authorization: Bearer <API_KEY>` |
+| Scraper | `scraper` | 3000 | none | `x-api-key: <SCRAPER_API_KEY>` |
 
 `/health` is open on every service (no key) — used by the Docker healthchecks.
 All other endpoints require the key. The LLM uses `API_KEY`; the scraper has
-its own (`SCRAPER_API_KEY`).
+its own (`SCRAPER_API_KEY`). The public tunnel allows only `/health` and
+`/v1/*`; every other public path returns `404`.
 
 ### LLM (5090) — `192.168.1.15:8090`
 
@@ -58,13 +71,15 @@ prefill, asynchronous scheduling, and the `FLASHINFER_CUTLASS` NVFP4 MoE
 kernel selected natively on the RTX 5090.
 
 ```bash
-curl http://192.168.1.15:8090/v1/chat/completions \
+curl https://model.leads.run/v1/chat/completions \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{"model":"gemma-4-26B-A4B-it","messages":[{"role":"user","content":"Hello"}],"max_tokens":200}'
 ```
 
-Endpoints: `/v1/chat/completions`, `/v1/models`, `/health`.
+LAN clients can use `http://192.168.1.15:8090` directly. Public and LAN clients
+use the same bearer key. Endpoints: `/v1/chat/completions`, `/v1/models`,
+`/health`.
 
 Notes:
 - **MTP uses four speculative tokens.** Matched warm tests measured ~245 tok/s
@@ -167,6 +182,10 @@ docker compose up -d --build
 `docker compose` reads `.env` automatically. The file is gitignored and is
 never committed — it holds the API keys.
 
+The named Cloudflare Tunnel is a separate deployment because its credential is
+host-specific. Provision the credential and start it by following
+[`deploy/cloudflared/README.md`](deploy/cloudflared/README.md).
+
 The snapshots persist below `MODEL_DIR/hf`; container restarts do not download
 them again. vLLM stores compiled CUDA graphs below `VLLM_CACHE_DIR`, making
 later starts substantially faster than the first compile. The healthcheck
@@ -208,6 +227,8 @@ docker compose ps                 # status of all containers
 docker compose logs -f ik-llama   # follow LLM logs (or scraper)
 docker compose restart scraper    # restart one service
 docker compose down               # stop everything
+docker compose -f deploy/cloudflared/docker-compose.yml ps
+docker compose -f deploy/cloudflared/docker-compose.yml logs -f cloudflared
 ```
 
 Quick health check (no key required):
@@ -215,6 +236,7 @@ Quick health check (no key required):
 ```bash
 curl http://192.168.1.15:8090/health
 curl http://192.168.1.15:3000/health
+curl https://model.leads.run/health
 ```
 
 ## Repository layout
@@ -227,6 +249,7 @@ deploy/
   vllm/              # RTX 5090 vLLM image + focused Gemma 4 MTP patch
   Dockerfile         # legacy llama.cpp CUDA image used by the 3090 deployment
   entrypoint.sh      # legacy llama.cpp model downloader/launcher
+  cloudflared/       # stable public LLM ingress at model.leads.run
   llm-3090/          # compose for the RTX 3090 box: Gemma 4 26B-A4B Q4 + MTP, CUDA 12.8 build
   embeddings-3090/   # legacy embeddings stack for the 3090 (retired — replaced by llm-3090/)
 src/                 # scraper source (TypeScript) — see AGENTS.md
