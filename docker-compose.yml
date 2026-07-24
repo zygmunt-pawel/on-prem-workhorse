@@ -69,6 +69,8 @@ services:
       - --enable-prefix-caching
       - --enable-chunked-prefill
       - --async-scheduling
+      - --structured-outputs-config
+      - '{"backend":"xgrammar","disable_any_whitespace":true}'
       - --speculative-config
       - '{"method":"mtp","model":"/models/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
       - --api-key
