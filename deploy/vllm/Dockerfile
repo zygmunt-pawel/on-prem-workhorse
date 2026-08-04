@@ -11,3 +11,8 @@ RUN cd /usr/local/lib/python3.12/dist-packages/vllm/v1/spec_decode \
        < /tmp/llm_base_proposer.patch \
     && python3 -m py_compile llm_base_proposer.py \
     && rm /tmp/llm_base_proposer.patch
+
+COPY entrypoint.sh /usr/local/bin/on-prem-vllm
+RUN chmod 0755 /usr/local/bin/on-prem-vllm
+
+ENTRYPOINT ["/usr/local/bin/on-prem-vllm"]

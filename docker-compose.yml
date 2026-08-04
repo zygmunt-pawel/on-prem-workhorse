@@ -22,7 +22,8 @@ services:
       start_period: 30s
 
   # Gemma 4 26B-A4B, NVIDIA NVFP4 weights + Google's official MTP assistant.
-  # vLLM selects FLASHINFER_CUTLASS on the RTX 5090; eight parallel 32k slots.
+  # The server admits up to 80 short/medium sequences; the FP8 KV pool is the
+  # independent hard limit for long contexts.
   # NOTE: historical service name retained so existing compose commands keep working.
   ik-llama:
     image: on-prem-workhorse-vllm:v0.25.0-gemma4-mtp
@@ -39,42 +40,20 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - VLLM_NO_USAGE_STATS=1
       - DO_NOT_TRACK=1
+      # vLLM reads this directly. Keeping the key out of argv prevents startup
+      # config logs and process inspection from exposing it.
+      - VLLM_API_KEY=${API_KEY}
+      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
+      - VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
+      - VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
+      - VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.94}
+      - VLLM_KV_CACHE_DTYPE=${VLLM_KV_CACHE_DTYPE:-fp8}
+      - VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
     volumes:
       - ${MODEL_DIR}/hf:/models:ro
       - ${VLLM_CACHE_DIR:-/home/pawel/.cache/vllm-gemma4-bench}:/root/.cache
     ports:
       - "8090:8000"
-    command:
-      - --model
-      - /models/Gemma-4-26B-A4B-NVFP4
-      - --served-model-name
-      - gemma-4-26B-A4B-it
-      - Gemma-4-26B-A4B-NVFP4
-      - gemma-4-31B-it-UD-Q6_K_XL.gguf
-      - gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf
-      - --trust-remote-code
-      - --language-model-only
-      - --max-model-len
-      - "32768"
-      - --max-num-seqs
-      - "8"
-      - --max-num-batched-tokens
-      - "8192"
-      - --gpu-memory-utilization
-      - "0.95"
-      - --kv-cache-dtype
-      - fp8
-      - --moe-backend
-      - auto
-      - --enable-prefix-caching
-      - --enable-chunked-prefill
-      - --async-scheduling
-      - --structured-outputs-config
-      - '{"backend":"xgrammar","disable_any_whitespace":true}'
-      - --speculative-config
-      - '{"method":"mtp","model":"/models/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
-      - --api-key
-      - ${API_KEY}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=2)"]
       interval: 30s
