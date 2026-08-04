@@ -486,7 +486,12 @@ async def execute_phase(
     timeout: int,
 ) -> dict[str, Any]:
     jobs = make_jobs(phase, repetition)
-    metrics_before = read_metrics(metrics_url)
+    metrics_errors: list[str] = []
+    try:
+        metrics_before = read_metrics(metrics_url)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        metrics_before = {}
+        metrics_errors.append(f"before: {error}")
     sampler = GpuSampler()
     sampler.start()
     started = time.perf_counter()
@@ -496,7 +501,11 @@ async def execute_phase(
     )
     wall_seconds = time.perf_counter() - started
     sampler.stop()
-    metrics_after = read_metrics(metrics_url)
+    try:
+        metrics_after = read_metrics(metrics_url)
+    except (OSError, ValueError, urllib.error.URLError) as error:
+        metrics_after = metrics_before
+        metrics_errors.append(f"after: {error}")
 
     failures = [str(result) for result in gathered if isinstance(result, Exception)]
     results = [result for result in gathered if isinstance(result, RequestResult)]
@@ -555,6 +564,7 @@ async def execute_phase(
         "parseFailures": sum(result.parse_failures for result in results),
         "finishReasons": dict(sorted(finish_reasons.items())),
         "errors": failures,
+        "metricsErrors": metrics_errors,
         "gpu": summarize_gpu(sampler.samples),
     }
 
@@ -578,6 +588,13 @@ def aggregate(phases: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for phase_name in ("prefilter", "sieve", "mixed"):
         rows = [phase for phase in phases if phase["phase"] == phase_name]
+        if not rows:
+            continue
+        ttft_values = [
+            row["averageTtftSeconds"]
+            for row in rows
+            if row["averageTtftSeconds"] is not None
+        ]
         result[phase_name] = {
             "wallSecondsMedian": round(statistics.median(row["wallSeconds"] for row in rows), 4),
             "completionTokensPerSecondMedian": round(
@@ -589,13 +606,8 @@ def aggregate(phases: list[dict[str, Any]]) -> dict[str, Any]:
             "requestLatencyP95SecondsMedian": round(
                 statistics.median(row["requestLatencyP95Seconds"] for row in rows), 4
             ),
-            "averageTtftSecondsMedian": round(
-                statistics.median(
-                    row["averageTtftSeconds"]
-                    for row in rows
-                    if row["averageTtftSeconds"] is not None
-                ),
-                4,
+            "averageTtftSecondsMedian": (
+                round(statistics.median(ttft_values), 4) if ttft_values else None
             ),
             "gpuUtilizationAveragePct": round(
                 statistics.fmean(row["gpu"].get("utilizationAveragePct", 0) for row in rows),
@@ -606,10 +618,55 @@ def aggregate(phases: list[dict[str, Any]]) -> dict[str, Any]:
             "preemptions": sum(row["preemptions"] for row in rows),
         }
     result["totalWallSecondsMedian"] = round(
-        sum(result[phase]["wallSecondsMedian"] for phase in ("prefilter", "sieve", "mixed")),
+        sum(
+            result[phase]["wallSecondsMedian"]
+            for phase in ("prefilter", "sieve", "mixed")
+            if phase in result
+        ),
         4,
     )
     return result
+
+
+def build_report(
+    args: argparse.Namespace,
+    phases: list[dict[str, Any]],
+    status: str,
+) -> dict[str, Any]:
+    return {
+        "schemaVersion": 1,
+        "createdAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "variant": args.variant,
+        "status": status,
+        "server": {
+            "baseUrl": args.base_url.rstrip("/"),
+            "maxNumBatchedTokens": os.environ.get("VLLM_MAX_NUM_BATCHED_TOKENS"),
+            "maxNumSeqs": os.environ.get("VLLM_MAX_NUM_SEQS"),
+            "gpuMemoryUtilization": os.environ.get("VLLM_GPU_MEMORY_UTILIZATION"),
+            "kvCacheDtype": os.environ.get("VLLM_KV_CACHE_DTYPE"),
+            "kvCacheDtypeSkipLayers": os.environ.get(
+                "VLLM_KV_CACHE_DTYPE_SKIP_LAYERS", ""
+            ),
+        },
+        "fixture": {
+            "kind": "synthetic-production-shape",
+            "prefilterSequencesPerRequest": PREFILTER_SEQUENCES,
+            "sieveSequencesPerRequest": SIEVE_SEQUENCES,
+            "prefilterMaxTokens": PREFILTER_MAX_TOKENS,
+            "sieveMaxTokens": SIEVE_MAX_TOKENS,
+            "repetitions": args.repetitions,
+        },
+        "phases": phases,
+        "summary": aggregate(phases),
+    }
+
+
+def write_report(args: argparse.Namespace, report: dict[str, Any]) -> None:
+    if not args.output:
+        return
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
 
 
 async def main_async(args: argparse.Namespace) -> int:
@@ -622,6 +679,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     await warm_up(completions_url, api_key, args.timeout)
     phases: list[dict[str, Any]] = []
+    failed = False
     for repetition in range(1, args.repetitions + 1):
         for phase_name in ("prefilter", "sieve", "mixed"):
             phase = await execute_phase(
@@ -640,37 +698,24 @@ async def main_async(args: argparse.Namespace) -> int:
                 f"errors={len(phase['errors'])}, parse={phase['parseFailures']}",
                 flush=True,
             )
+            failed = bool(
+                phase["errors"] or phase["metricsErrors"] or phase["parseFailures"]
+            )
+            report = build_report(args, phases, "failed" if failed else "running")
+            write_report(args, report)
+            if failed:
+                if phase["errors"]:
+                    print(f"first request error: {phase['errors'][0]}", flush=True)
+                if phase["metricsErrors"]:
+                    print(f"metrics error: {phase['metricsErrors'][0]}", flush=True)
+                break
+        if failed:
+            break
 
-    report = {
-        "schemaVersion": 1,
-        "createdAtUtc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "variant": args.variant,
-        "server": {
-            "baseUrl": base_url,
-            "maxNumBatchedTokens": os.environ.get("VLLM_MAX_NUM_BATCHED_TOKENS"),
-            "maxNumSeqs": os.environ.get("VLLM_MAX_NUM_SEQS"),
-            "gpuMemoryUtilization": os.environ.get("VLLM_GPU_MEMORY_UTILIZATION"),
-            "kvCacheDtype": os.environ.get("VLLM_KV_CACHE_DTYPE"),
-            "kvCacheDtypeSkipLayers": os.environ.get("VLLM_KV_CACHE_DTYPE_SKIP_LAYERS", ""),
-        },
-        "fixture": {
-            "kind": "synthetic-production-shape",
-            "prefilterSequencesPerRequest": PREFILTER_SEQUENCES,
-            "sieveSequencesPerRequest": SIEVE_SEQUENCES,
-            "prefilterMaxTokens": PREFILTER_MAX_TOKENS,
-            "sieveMaxTokens": SIEVE_MAX_TOKENS,
-            "repetitions": args.repetitions,
-        },
-        "phases": phases,
-        "summary": aggregate(phases),
-    }
-    encoded = json.dumps(report, indent=2, sort_keys=True) + "\n"
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(encoded)
+    report = build_report(args, phases, "failed" if failed else "ok")
+    write_report(args, report)
     print(json.dumps(report["summary"], indent=2, sort_keys=True))
-    return 1 if any(phase["errors"] or phase["parseFailures"] for phase in phases) else 0
+    return 1 if failed or any(phase["parseFailures"] for phase in phases) else 0
 
 
 def parse_args() -> argparse.Namespace:

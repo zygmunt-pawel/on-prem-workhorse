@@ -15,6 +15,8 @@ def main() -> int:
     rows = []
     for result_path in sorted(root.glob("*/result.json")):
         report = json.loads(result_path.read_text())
+        if report.get("status") != "ok":
+            continue
         summary = report["summary"]
         rows.append(
             (
