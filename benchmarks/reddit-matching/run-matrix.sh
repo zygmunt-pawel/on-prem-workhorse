@@ -22,6 +22,7 @@ export VLLM_MAX_NUM_SEQS=80
 export VLLM_GPU_MEMORY_UTILIZATION=0.94
 export VLLM_KV_CACHE_DTYPE=fp8
 benchmark_repetitions="${BENCHMARK_REPETITIONS:-3}"
+benchmark_variants="${BENCHMARK_VARIANTS:-}"
 
 restore_baseline() {
   export VLLM_GPU_MEMORY_UTILIZATION=0.94
@@ -117,14 +118,24 @@ run_variant() {
   tail -n 24 "${variant_dir}/console.log"
 }
 
+run_selected_variant() {
+  local name="$1"
+  shift
+  if [[ -z "${benchmark_variants}" || " ${benchmark_variants} " == *" ${name} "* ]]; then
+    run_variant "${name}" "$@"
+  fi
+}
+
 docker compose build ik-llama
 
-run_variant fp8-g94-b8192 8192 0.94 ""
-run_variant fp8-g94-b10240 10240 0.94 ""
-run_variant fp8-g94-b12288 12288 0.94 ""
-run_variant fp8-g92-b12288 12288 0.92 ""
-run_variant fp8-g90-b16384 16384 0.90 ""
-run_variant fp8-skip-sw-g94-b8192 8192 0.94 sliding_window
+run_selected_variant fp8-g94-b4096 4096 0.94 ""
+run_selected_variant fp8-g94-b6144 6144 0.94 ""
+run_selected_variant fp8-g94-b8192 8192 0.94 ""
+run_selected_variant fp8-g94-b10240 10240 0.94 ""
+run_selected_variant fp8-g94-b12288 12288 0.94 ""
+run_selected_variant fp8-g92-b12288 12288 0.92 ""
+run_selected_variant fp8-g90-b16384 16384 0.90 ""
+run_selected_variant fp8-skip-sw-g94-b8192 8192 0.94 sliding_window
 
 python3 benchmarks/reddit-matching/summarize.py "${result_root}"
 echo "raw results: ${result_root}"

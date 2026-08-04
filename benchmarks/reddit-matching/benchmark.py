@@ -28,8 +28,8 @@ from typing import Any, Iterable
 MODEL = "gemma-4-26B-A4B-it"
 PREFILTER_SEQUENCES = 8
 SIEVE_SEQUENCES = 4
-PREFILTER_MAX_TOKENS = 1_000
-SIEVE_MAX_TOKENS = 2_500
+PREFILTER_MAX_TOKENS = int(os.environ.get("BENCHMARK_PREFILTER_MAX_TOKENS", "1000"))
+SIEVE_MAX_TOKENS = int(os.environ.get("BENCHMARK_SIEVE_MAX_TOKENS", "2500"))
 
 PREFILTER_SYSTEM = """
 You are a permissive first-stage relevance sieve for an arbitrary SaaS project.
@@ -434,7 +434,9 @@ def summarize_gpu(samples: list[tuple[float, float, float]]) -> dict[str, float]
 
 
 def make_jobs(phase: str, repetition: int) -> list[dict[str, Any]]:
-    salt_prefix = f"{phase}-r{repetition}-{time.time_ns()}"
+    # Keep every variant byte-for-byte comparable while still avoiding cache reuse
+    # between phases and repetitions.
+    salt_prefix = f"{phase}-r{repetition}-fixture-v1"
     jobs: list[dict[str, Any]] = []
 
     def add_prefilter(count: int, project_offset: int) -> None:

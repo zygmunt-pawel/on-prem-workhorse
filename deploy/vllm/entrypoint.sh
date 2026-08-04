@@ -14,12 +14,12 @@ args=(
   gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf
   --trust-remote-code
   --language-model-only
-  --max-model-len "${VLLM_MAX_MODEL_LEN:-32768}"
-  --max-num-seqs "${VLLM_MAX_NUM_SEQS:-80}"
-  --max-num-batched-tokens "${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
-  --gpu-memory-utilization "${VLLM_GPU_MEMORY_UTILIZATION:-0.94}"
-  --kv-cache-dtype "${VLLM_KV_CACHE_DTYPE:-fp8}"
-  --moe-backend "${VLLM_MOE_BACKEND:-auto}"
+  --max-model-len "${ON_PREM_VLLM_MAX_MODEL_LEN:-32768}"
+  --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-80}"
+  --max-num-batched-tokens "${ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
+  --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.94}"
+  --kv-cache-dtype "${ON_PREM_VLLM_KV_CACHE_DTYPE:-fp8}"
+  --moe-backend "${ON_PREM_VLLM_MOE_BACKEND:-auto}"
   --enable-prefix-caching
   --enable-chunked-prefill
   --async-scheduling
@@ -27,8 +27,8 @@ args=(
   --speculative-config '{"method":"mtp","model":"/models/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
 )
 
-if [[ -n "${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}" ]]; then
-  IFS=',' read -r -a skip_layers <<< "${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS}"
+if [[ -n "${ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}" ]]; then
+  IFS=',' read -r -a skip_layers <<< "${ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS}"
   args+=(--kv-cache-dtype-skip-layers "${skip_layers[@]}")
 fi
 

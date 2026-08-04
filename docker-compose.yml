@@ -43,12 +43,15 @@ services:
       # vLLM reads this directly. Keeping the key out of argv prevents startup
       # config logs and process inspection from exposing it.
       - VLLM_API_KEY=${API_KEY}
-      - VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
-      - VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
-      - VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
-      - VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.94}
-      - VLLM_KV_CACHE_DTYPE=${VLLM_KV_CACHE_DTYPE:-fp8}
-      - VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
+      # Use an application-owned prefix inside the container. vLLM reserves
+      # VLLM_* and warns about unknown names before our entrypoint can consume them.
+      - ON_PREM_VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
+      - ON_PREM_VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
+      - ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
+      - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.94}
+      - ON_PREM_VLLM_KV_CACHE_DTYPE=${VLLM_KV_CACHE_DTYPE:-fp8}
+      - ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
+      - ON_PREM_VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND:-auto}
     volumes:
       - ${MODEL_DIR}/hf:/models:ro
       - ${VLLM_CACHE_DIR:-/home/pawel/.cache/vllm-gemma4-bench}:/root/.cache
