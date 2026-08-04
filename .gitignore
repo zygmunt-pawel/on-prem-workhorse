@@ -6,5 +6,7 @@ dist/
 tests/
 test-results/
 benchmark-results/
+__pycache__/
+*.py[cod]
 test-saas-batch.sh
 deploy/cloudflared/*.json

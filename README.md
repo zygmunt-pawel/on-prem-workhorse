@@ -65,10 +65,13 @@ its own (`SCRAPER_API_KEY`). The public tunnel allows only `/health` and
 
 OpenAI-compatible **vLLM 0.25.0** server running NVIDIA's
 **Gemma 4 26B-A4B NVFP4** checkpoint with Google's official Gemma 4 assistant
-for **MTP speculative decoding**. It accepts eight concurrent requests with up
-to 32k context each, uses FP8 KV cache, CUDA graphs, prefix caching, chunked
-prefill, asynchronous scheduling, and the `FLASHINFER_CUTLASS` NVFP4 MoE
-kernel selected natively on the RTX 5090.
+for **MTP speculative decoding**. The server admits up to 80 independent
+sequences with at most 32k context each. The LeadsRun client deliberately caps
+itself at 64 sequences and 250k conservatively estimated in-flight tokens,
+leaving headroom for scheduling and transient MoE workspace. The server uses
+FP8 KV cache, CUDA graphs, prefix caching, chunked prefill, asynchronous
+scheduling, and the `FLASHINFER_CUTLASS` NVFP4 MoE kernel selected natively on
+the RTX 5090.
 
 ```bash
 curl https://model.leads.run/v1/chat/completions \
@@ -86,9 +89,16 @@ Notes:
   for one long response and ~1,435 tok/s aggregate for eight unrelated long
   prompts. Eight constrained-JSON requests reached ~1,811 tok/s. MTP values 1
   through 6 were tested; four was the fastest and most stable general setting.
-- **Context is 8 × 32k.** The production FP8 KV cache holds about 289k tokens
-  (8.82 theoretical 32k sequences), so eight full request contexts fit. The
-  running process reserves about 30.4 of 32.6 GiB VRAM, including the KV pool.
+- **Context is dynamic, not eight fixed slots.** The production FP8 KV cache
+  holds 274,617 tokens (8.38 theoretical full 32k contexts), and PagedAttention
+  shares that pool between as many as 80 shorter sequences. A single sequence
+  may use at most 32,768 tokens.
+- **The production scheduler uses 8192 batched tokens.** This exact Reddit
+  request shape reached roughly 256 prefilter posts in 4.9 seconds while
+  keeping 64 sequences active. Larger scheduler batches were slower and 32k
+  exhausted transient MoE workspace. Reproducible measurements and rejected
+  alternatives are in
+  [`benchmarks/reddit-matching/README.md`](benchmarks/reddit-matching/README.md).
 - **Thinking model.** Responses contain a `reasoning_content` field separate
   from `content`. Give a generous `max_tokens` — with a small budget the whole
   allowance can be spent on reasoning and `content` comes back empty.
@@ -117,7 +127,7 @@ curl http://192.168.1.138:8090/v1/chat/completions \
 | Model | Gemma 4 26B-**A4B** NVFP4 | Gemma 4 26B-**A4B** GGUF Q4 |
 | Gen speed | ~245 tok/s single; ~1,435 aggregate at 8× | ~128–156 tok/s |
 | VRAM | ~30.4 / 32.6 GiB (including reserved KV) | ~18.5 / 24 GB |
-| Context | 8 × 32k (256k total) | 64k |
+| Context | 32k/request; 274,617-token dynamic KV pool | 64k |
 
 Measured on the 3090: generation **128–156 tok/s** (MTP draft accept 53–67%),
 prompt processing **~3090 tok/s**. The stack, the box-specific build (CUDA 12.8
@@ -214,6 +224,11 @@ Copy `.env.example` to `.env` and fill in:
 | `PROXY_URL` | Optional HTTP/HTTPS proxy for the scraper's Playwright browser |
 | `MODEL_DIR` | Host root containing the two snapshots below `MODEL_DIR/hf` |
 | `VLLM_CACHE_DIR` | Persistent vLLM compile/CUDA graph cache directory |
+| `VLLM_MAX_MODEL_LEN` | Maximum context per 5090 sequence; production `32768` |
+| `VLLM_MAX_NUM_SEQS` | Server-side sequence ceiling; production `80` |
+| `VLLM_MAX_NUM_BATCHED_TOKENS` | Scheduler token budget per iteration; production `8192` |
+| `VLLM_GPU_MEMORY_UTILIZATION` | Fraction reserved by vLLM; production `0.94` |
+| `VLLM_KV_CACHE_DTYPE` | KV cache format; production `fp8` |
 
 If `SCRAPER_API_KEY` is empty, the scraper registers **no** auth hook and every
 endpoint becomes open — keep it set. Same applies to `API_KEY` for the LLM.
