@@ -40,6 +40,9 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - VLLM_NO_USAGE_STATS=1
       - DO_NOT_TRACK=1
+      # FlashInfer's fused-MoE workspace is allocated dynamically. Expandable
+      # segments let PyTorch reuse fragmented reserved memory under mixed waves.
+      - PYTORCH_ALLOC_CONF=expandable_segments:True
       # vLLM reads this directly. Keeping the key out of argv prevents startup
       # config logs and process inspection from exposing it.
       - VLLM_API_KEY=${API_KEY}
@@ -48,7 +51,7 @@ services:
       - ON_PREM_VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
       - ON_PREM_VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
       - ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
-      - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.94}
+      - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
       - ON_PREM_VLLM_KV_CACHE_DTYPE=${VLLM_KV_CACHE_DTYPE:-fp8}
       - ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
       - ON_PREM_VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND:-auto}

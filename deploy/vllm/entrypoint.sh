@@ -17,7 +17,7 @@ args=(
   --max-model-len "${ON_PREM_VLLM_MAX_MODEL_LEN:-32768}"
   --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-80}"
   --max-num-batched-tokens "${ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
-  --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.94}"
+  --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
   --kv-cache-dtype "${ON_PREM_VLLM_KV_CACHE_DTYPE:-fp8}"
   --moe-backend "${ON_PREM_VLLM_MOE_BACKEND:-auto}"
   --enable-prefix-caching

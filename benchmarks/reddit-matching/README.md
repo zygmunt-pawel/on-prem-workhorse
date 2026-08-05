@@ -58,7 +58,7 @@ as the bearer header, and is never written to a result. The vLLM process receive
 
 ## Result and production decision
 
-The 4 August 2026 production-shape run selected full FP8 KV, utilization 0.94, and
+The 4 August 2026 isolated production-shape run selected full FP8 KV, utilization 0.94, and
 `max_num_batched_tokens=8192`. The three-repetition confirmation processed one
 256-post prefilter wave in a median 4.72 seconds at 96.6% average GPU utilization,
 without request, protocol, or preemption errors. One-pass screening of the larger
@@ -84,9 +84,25 @@ variants stable but still slower than 8192.
 The heterogeneous cache is especially unsuitable for Gemma 4: page alignment between
 its 256-wide sliding heads, 512-wide global heads, and padded speculative pages reduced
 the usable pool to only 80,798 tokens and made every phase slower. Full FP8 provides
-274,617 tokens. The application consequently keeps a 250k estimated-token admission
-budget and 64 active sequences against the server's ceiling of 80; the remaining space
-is deliberate scheduling and workspace headroom.
+274,617 tokens. That isolated result originally led to a 250k estimated-token admission
+budget and 64 active sequences against the server's ceiling of 80.
+
+## Mixed-production OOM and revised safety envelope
+
+On 5 August 2026 the real shared workload combined Reddit `/completions` waves with
+AiPipeline `/chat/completions`. EngineCore failed three times in the FlashInfer CUTLASS
+fused-MoE workspace. Every failure requested another 724 MiB while only 495–575 MiB was
+physically free. One failure happened with only seven running sequences and about 10%
+KV occupancy, proving that `max_num_seqs` alone was not the controlling limit. Logs also
+showed 1.01–1.09 GiB reserved but unallocated in the PyTorch allocator.
+
+The production safety envelope is therefore revised to full FP8 KV,
+`gpu_memory_utilization=0.90`, `max_num_batched_tokens=8192`, `max_num_seqs=80`, MTP×4,
+and `PYTORCH_ALLOC_CONF=expandable_segments:True`. The LeadsRun admission gate keeps 64
+sequence slots but lowers its estimated-token budget to 220k. This preserves the measured
+scheduler optimum while leaving physical workspace and KV headroom. Lowering the scheduler
+batch to 6144 or 4096 remains a fallback only if the revised envelope still reproduces an
+OOM under the same mixed workload.
 
 ## Why FP8 is the baseline
 
