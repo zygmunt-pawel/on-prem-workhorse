@@ -90,7 +90,7 @@ Notes:
   prompts. Eight constrained-JSON requests reached ~1,811 tok/s. MTP values 1
   through 6 were tested; four was the fastest and most stable general setting.
 - **Context is dynamic, not eight fixed slots.** The production FP8 KV cache
-  holds about 240k tokens, and PagedAttention
+  holds 247,029 tokens, and PagedAttention
   shares that pool between as many as 80 shorter sequences. A single sequence
   may use at most 32,768 tokens.
 - **The production scheduler uses 8192 batched tokens.** This exact Reddit
@@ -132,7 +132,7 @@ curl http://192.168.1.138:8090/v1/chat/completions \
 | Model | Gemma 4 26B-**A4B** NVFP4 | Gemma 4 26B-**A4B** GGUF Q4 |
 | Gen speed | ~245 tok/s single; ~1,435 aggregate at 8× | ~128–156 tok/s |
 | VRAM | ~30.4 / 32.6 GiB (including reserved KV) | ~18.5 / 24 GB |
-| Context | 32k/request; ~240k-token dynamic KV pool | 64k |
+| Context | 32k/request; 247,029-token dynamic KV pool | 64k |
 
 Measured on the 3090: generation **128–156 tok/s** (MTP draft accept 53–67%),
 prompt processing **~3090 tok/s**. The stack, the box-specific build (CUDA 12.8
