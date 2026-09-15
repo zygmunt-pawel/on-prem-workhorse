@@ -95,8 +95,13 @@ Dla naszej konfiguracji orientacyjny podział budżetu wygląda tak:
 |---|---:|
 | Załadowane modele, łącznie z MTP | 17,64 GiB |
 | Pozostałe alokacje i rezerwy uwzględnione w przydziale | około 2,80 GiB |
-| KV cache | około 8,86 GiB |
+| KV cache — wspólna pula na konteksty sekwencji | około 8,86 GiB |
 | **Razem** | **około 29,30 GiB** |
+
+**Mamy więc około 8,86 GiB wspólnej puli na stan sekwencji: ich prompty
+oraz wygenerowane tokeny odpowiedzi.** Są to reprezentacje K i V używane
+przez uwagę. Każda obsługiwana sekwencja korzysta z potrzebnych jej bloków
+tej puli, a jej kontekst rośnie podczas generowania.
 
 To przybliżony rachunek dla startu z zapisaną kompilacją. Faktyczny przydział
 KV danego uruchomienia vLLM wypisuje w logach jako `Available KV cache memory`.
@@ -150,21 +155,44 @@ tej kwantyzacji pozostaje pusta.
 vLLM zarządza KV cache w blokach. Przydziela je kontekstom według potrzeb,
 zamiast od razu rezerwować pełny maksymalny kontekst dla każdego zapytania.
 
-Warto rozróżnić dwa limity:
+**Sekwencja to jeden kontekst generowania: prompt wraz z dopisywaną
+odpowiedzią.** Przy jednym prompcie i jednej generowanej odpowiedzi zapytanie
+odpowiada jednej sekwencji. Jedno żądanie API zawierające wiele promptów może
+uruchamiać wiele sekwencji.
 
-**`max_model_len=32768`** określa maksymalną długość jednej sekwencji.
-W tym limicie muszą zmieścić się wejście i generowana odpowiedź. Na przykład
-prompt o długości 12 000 tokenów z odpowiedzią do 2000 tokenów potrzebuje
-łącznie do 14 000 tokenów kontekstu.
+### `--max-num-seqs 80`: ile sekwencji może pracować równocześnie
 
-**`max_num_seqs=80`** określa górny limit sekwencji obsługiwanych równocześnie.
-Scheduler — część vLLM rozdzielająca pracę — bierze pod uwagę również dostępną
-pamięć. Krótkich kontekstów może zmieścić się więcej niż długich.
+Przy uruchamianiu vLLM podajemy **`--max-num-seqs 80`**. Nazwa tego samego
+ustawienia w konfiguracji to `max_num_seqs`.
 
-Dlatego tych wartości nie mnożymy jako obietnicy pojemności. `80 × 32768`
-nie oznacza, że tyle tokenów kontekstu zostało z góry zarezerwowanych na GPU.
-Zapytania, dla których nie ma jeszcze miejsca lub budżetu pracy, czekają
-w kolejce.
+To górny limit liczby sekwencji obsługiwanych w jednej iteracji schedulera.
+Scheduler — część vLLM rozdzielająca pracę — musi jednocześnie zmieścić ich
+stan w dostępnej puli KV cache i przestrzegać budżetu tokenów danej iteracji.
+
+**Te 80 sekwencji współdzieli około 8,86 GiB KV cache.** Nie dostają po
+8,86 GiB każda, a pula nie jest też dzielona na 80 równych, stałych części.
+Bloki są przydzielane według potrzeb kontekstów; zgodne prefiksy mogą być
+współdzielone.
+
+Dlatego krótkich kontekstów może pracować równocześnie więcej niż długich.
+Limit 80 dopuszcza taką równoległość, ale nie gwarantuje, że dowolne
+80 zapytań zmieści się naraz. Pozostałe zapytania czekają w kolejce.
+**W naszej konfiguracji pozostawiamy `--max-num-seqs 80`.**
+
+### `--max-model-len 32768`: jak długa może być jedna sekwencja
+
+Drugi parametr startowy, **`--max-model-len 32768`**, określa maksymalną
+łączną długość promptu i odpowiedzi dla jednej sekwencji.
+
+Na przykład prompt o długości 12 000 tokenów z odpowiedzią do 2000 tokenów
+potrzebuje łącznie do **14 000 tokenów kontekstu**. Mieści się w limicie
+32 768. W miarę dopisywania odpowiedzi powiększa się stan tej sekwencji
+utrzymywany w KV cache, zgodnie z budową warstw uwagi modelu.
+
+Dla wielu takich sekwencji trzeba zmieścić ich wspólny koszt pamięciowy
+w puli około 8,86 GiB. Dlatego `80 × 32768` nie jest pojemnością naszego
+cache: jeden parametr ogranicza liczbę sekwencji, drugi długość każdej,
+a dostępna pamięć ogranicza ich faktyczną równoczesną obsługę.
 
 ## 7. Co oznacza batch 8192 i jak vLLM łączy pracę?
 
