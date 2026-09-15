@@ -300,7 +300,9 @@ cd /home/server/on-prem-workhorse
 
 The production image is digest-pinned vLLM **0.29.0**, with Model Runner V2,
 `TRITON_ATTN` attention and `flashinfer_cutlass` MoE. The official Gemma MTP
-fix is included upstream. Keep `.92`, batch `8192`, MTP×4 and 450 W.
+fix is included upstream, but production MTP is disabled after the 2026-09-15
+continuous-JSON benchmark. Keep `.92`, batch `8192`, max-num-seqs `64`, MTP
+off and 450 W.
 Use `/home/server/.cache/vllm-gemma4-v029` for persistent compilation data;
 benchmark result directories must not be production mounts.
 

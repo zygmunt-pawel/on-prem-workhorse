@@ -21,8 +21,9 @@ services:
       retries: 3
       start_period: 30s
 
-  # Gemma 4 26B-A4B, NVIDIA NVFP4 weights + Google's official MTP assistant.
-  # The server admits up to 80 short/medium sequences; the FP8 KV pool is the
+  # Gemma 4 26B-A4B with NVIDIA NVFP4 weights. MTP is disabled by default after
+  # the 2026-09-15 high-concurrency JSON benchmark; it remains opt-in for A/Bs.
+  # The server admits up to 64 short/medium sequences; the FP8 KV pool is the
   # independent hard limit for long contexts.
   # NOTE: historical service name retained so existing compose commands keep working.
   ik-llama:
@@ -50,7 +51,7 @@ services:
       # Use an application-owned prefix inside the container. vLLM reserves
       # VLLM_* and warns about unknown names before our entrypoint can consume them.
       - ON_PREM_VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
-      - ON_PREM_VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
+      - ON_PREM_VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-64}
       - ON_PREM_VLLM_SCHEDULING_POLICY=${VLLM_SCHEDULING_POLICY:-priority}
       - ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
       - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.92}
@@ -58,6 +59,7 @@ services:
       - ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
       - ON_PREM_VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}
       - ON_PREM_VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND:-flashinfer_cutlass}
+      - ON_PREM_VLLM_MTP_NUM_SPECULATIVE_TOKENS=${VLLM_MTP_NUM_SPECULATIVE_TOKENS:-0}
     volumes:
       - ${MODEL_DIR}/hf:/models:ro
       - ${VLLM_CACHE_DIR:-/home/server/.cache/vllm-gemma4-v029}:/root/.cache

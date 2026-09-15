@@ -1,14 +1,20 @@
 # Reddit matching vLLM benchmark
 
-**Production, 2026-09-15:** vLLM **0.29.0 / MRV2**, Triton attention,
-FlashInfer CUTLASS MoE, FP8 KV, utilization **0.92**, batch **8192**, MTP×4,
-450 W, priority scheduling. The HTTP load measurements predate enabling priority
+**Committed deployment defaults, 2026-09-15:** vLLM **0.29.0 / MRV2**, Triton attention,
+FlashInfer CUTLASS MoE, FP8 KV, utilization **0.92**, batch **8192**, MTP off,
+`max_num_seqs=64`, 450 W, prefix caching and priority scheduling. The original HTTP load measurements predate enabling priority
 and used FCFS. Results later in this document are the historical 0.25 scheduler and
 power experiments, with their original settings; they are not new 0.29 runs.
 The matrix cleanup restores utilization read from `.env` at startup.
 
 Current evidence and decisions:
 
+- [Further continuous JSON tuning](../../docs/vllm-json-tuning-benchmark.md):
+  MTP off/×1/×2, scheduler budgets 6144/8192/10240 and active caps 48/56/64.
+  The selected no-MTP / 64 runtime is now the persistent production default.
+- [Cap/client follow-up](../../docs/vllm-cap-client-followup.md): cap 72 gave
+  only a marginal gain with higher KV and tail latency; production stays at 64
+  and the recommended client pool for this short-JSON profile is 80.
 - [Version, runner, memory and backend comparison](../../docs/vllm-029-benchmark.md).
 - [Full-cache pressure comparison](../../docs/vllm-kv-pressure-benchmark.md):
   shared-prefix long-output batches finished 8.8% sooner on 0.29; short outputs
@@ -19,6 +25,46 @@ Current evidence and decisions:
   prompt lists versus concurrent requests, shared prefixes, and a continuously
   replenished pool of 64 or 80 requests.
 - [Live inventory and post-migration checks](../../deploy/server/VERIFIED_STATE.md).
+- [Public-route concurrency and variable JSON outputs](../../docs/vllm-network-concurrency-benchmark.md):
+  HTTPS through Cloudflare, client pools versus the active-sequence limit,
+  schema-validated outputs, KV pressure and sampled GPU utilization.
+
+### Public-route concurrency benchmark
+
+`prepare-network-load.py` creates token-counted synthetic fixtures inside the
+model container (`--profile fixed` or `--profile json-mixed`). Copy the resulting
+JSON bank to the client machine before starting timed measurements.
+`network-load.py` sends completions through the public HTTPS endpoint and reads
+metrics separately through an SSH forward. It obtains the key from the running
+container over SSH unless `API_KEY` is already present in the client environment;
+keys are never written to results.
+
+Keep this forward open in a separate terminal:
+
+```bash
+ssh -N -L 18090:127.0.0.1:8090 server@server
+```
+
+Then run from the client with aiohttp and jsonschema installed:
+
+```bash
+python3 benchmarks/reddit-matching/network-load.py \
+  --prompts /tmp/network-json-mixed.json \
+  --output /tmp/network-results.json --run-id unique-network-run \
+  --cases 56x1 100x1 --warmup 20 --duration 90 --repetitions 2
+```
+
+Run exclusively: unrelated inference makes the strict token accounting fail.
+Our campaign isolated access using a temporary container API key, preserving
+the original `.env`, then restored production. An active-sequence change needs
+a warm restart after its initial compilation before comparing KV and throughput.
+
+The [report](../../docs/vllm-network-concurrency-benchmark.md) distinguishes
+the fixed-output screening, variable-length JSON screening and controlled
+active-limit comparison. `network-results-20260915.json` retains compact results,
+two excluded phases, GPU samples summarized per timed phase and artifact hashes.
+The tested 56-sequence cap was not the production default at the time. A later
+campaign promoted no-MTP / cap 64 to the persistent production configuration.
 
 ### Priority queue verification
 
@@ -238,3 +284,19 @@ python3 plot-continuous-load.py /tmp/continuous-result.json /tmp/load.svg
 It plots the first repetition of each case: generation counters over windows
 of at least 10 seconds and sampled active KV usage. The committed figure uses
 the final confirmation runs; aggregate conclusions use both repetitions.
+
+## MTP depth with continuous JSON load
+
+[The MTP JSON report](../../docs/vllm-mtp-json-benchmark.md) compares two, three
+and four draft tokens at 56 active sequences / 100 individual in-flight requests.
+The JSON workload uses the same 8192-token prompts as the public-route benchmark.
+Use `summarize-mtp-network.py` to validate the raw campaign and align GPU samples.
+The separately prepared `json-short` profile was cancelled before inference.
+
+The [subsequent tuning report](../../docs/vllm-json-tuning-benchmark.md)
+adds MTP×1 and no MTP, then varies scheduler budget and active concurrency.
+`summarize-json-tuning.py` validates that campaign, including independently
+observed live arguments, aligned GPU samples and the verified final runtime.
+Its selected no-MTP / 8192 / 64 configuration was left running at the user's
+request. The final confirmation averaged 8.79 JSON/s / 1251 output tokens/s;
+the contemporaneous MTP×2 / 8192 / 56 control averaged 7.91 / 1139.

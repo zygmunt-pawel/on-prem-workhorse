@@ -1,0 +1,56 @@
+{
+  "date": "2026-09-15",
+  "status": "stopped-by-user-after-cap72",
+  "decision": {
+    "maxNumSeqs": 64,
+    "recommendedClientPoolForThisProfile": 80,
+    "reason": "cap 72 stayed below the practical 2% gain threshold and increased KV pressure and tail latency; pool 100/120 mainly increased queueing"
+  },
+  "fixedSettings": {
+    "mtpTokens": 0,
+    "prefixCaching": true,
+    "maxNumBatchedTokens": 8192,
+    "maxModelLen": 32768,
+    "gpuMemoryUtilization": 0.92,
+    "powerLimitWatts": 450,
+    "inputTokens": 8192,
+    "commonPrefixTokens": 6147,
+    "route": "administrator Mac -> HTTPS / Cloudflare -> RTX 5090",
+    "warmupSeconds": 20,
+    "durationSeconds": 60
+  },
+  "healthyAggregates": [
+    {"cap": 64, "clientPool": 80, "repetitions": 2, "jsonPerSecond": 8.81027601840675, "outputTokensPerSecond": 1263.2918351548597, "kvMeanPct": 76.27042858520674, "kvPeakPct": 80.87334166220477, "httpLatencyP50": 8.21758895815583, "httpLatencyP95": 15.765907487284856, "preemptions": 0, "validatedSequencesIncludingDrain": 1427},
+    {"cap": 64, "clientPool": 100, "repetitions": 1, "jsonPerSecond": 8.859378130113413, "outputTokensPerSecond": 1251.9200558036393, "kvMeanPct": 76.42622197130149, "kvPeakPct": 80.92688440716283, "httpLatencyP50": 10.473029457964003, "httpLatencyP95": 17.95657583117718, "preemptions": 0, "validatedSequencesIncludingDrain": 745},
+    {"cap": 64, "clientPool": 120, "repetitions": 1, "jsonPerSecond": 8.795464404921255, "outputTokensPerSecond": 1256.6686349296488, "kvMeanPct": 76.29665077772027, "kvPeakPct": 79.93634362543875, "httpLatencyP50": 12.748308187001385, "httpLatencyP95": 20.296607839816716, "preemptions": 0, "validatedSequencesIncludingDrain": 763},
+    {"cap": 72, "clientPool": 80, "repetitions": 1, "jsonPerSecond": 8.931638722382642, "outputTokensPerSecond": 1288.3888857036961, "kvMeanPct": 83.91776118006793, "kvPeakPct": 92.61878584375836, "httpLatencyP50": 7.993551249965094, "httpLatencyP95": 25.441761406022124, "preemptions": 0, "validatedSequencesIncludingDrain": 616},
+    {"cap": 72, "clientPool": 100, "repetitions": 2, "jsonPerSecond": 8.95462943111069, "outputTokensPerSecond": 1237.2551178834096, "kvMeanPct": 85.72434649441935, "kvPeakPct": 91.19840727424004, "httpLatencyP50": 10.301717854163144, "httpLatencyP95": 20.11873627704334, "preemptions": 0, "validatedSequencesIncludingDrain": 1456},
+    {"cap": 72, "clientPool": 120, "repetitions": 2, "jsonPerSecond": 8.915820429819973, "outputTokensPerSecond": 1241.9642444333094, "kvMeanPct": 85.68110814586848, "kvPeakPct": 90.15838112501115, "httpLatencyP50": 12.6477149061393, "httpLatencyP95": 22.2922302689054, "preemptions": 0, "validatedSequencesIncludingDrain": 1470}
+  ],
+  "excluded": [
+    {"cap": 64, "clientPool": 120, "repetition": 2, "jsonPerSecond": 7.446206312999233, "runningMean": 51.047716937866824, "reason": "public route underfilled the engine during the measurement"},
+    {"cap": 64, "clientPool": 100, "repetition": 2, "jsonPerSecond": 7.296764604464244, "runningMean": 46.88254667416025, "reason": "public route underfilled the engine during the measurement"},
+    {"cap": 72, "clientPool": 80, "repetition": 2, "reason": "interrupted at user request before a completed phase was recorded"},
+    {"cap": 80, "reason": "not started at user request"}
+  ],
+  "productionRestoration": {
+    "maxNumSeqs": 64,
+    "mtpTokens": 0,
+    "prefixCaching": true,
+    "schedulingPolicy": "priority",
+    "kvPoolGiB": 10.26,
+    "kvTokens": 170293,
+    "originalApiKey": true,
+    "persistentEnvUnchangedDuringBenchmark": true,
+    "temporaryApiKeyRemoved": true,
+    "fullVerifierPassed": true,
+    "containerRestarts": 0
+  },
+  "artifactSha256": {
+    "cap64.json": "c65a879efd3960f060da003123efbacd8f1724674f3599f90fe35481a88f37ef",
+    "cap72.json": "56ea334fd7fa8b0ea5d599881acd172cd132f7f3eac201b572fbb9edd3ee2d17",
+    "gpu.csv": "8384840e038ea53835480a3b59b0975c86ca598e8dbf3708e1683c8faa304318",
+    "restored.json": "c50fc80765aab02a163979f932252ca3f1d557294b284e4e7d3da9fea1f41145",
+    "verification.log": "144c875c06aa7dbeec14915c8bccf4ca48d1744aab73281f7e81ac43992ed32a"
+  }
+}

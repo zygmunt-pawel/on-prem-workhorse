@@ -31,13 +31,14 @@ require_setting() {
 }
 
 require_setting VLLM_MAX_MODEL_LEN "${VLLM_MAX_MODEL_LEN:-32768}" 32768
-require_setting VLLM_MAX_NUM_SEQS "${VLLM_MAX_NUM_SEQS:-80}" 80
+require_setting VLLM_MAX_NUM_SEQS "${VLLM_MAX_NUM_SEQS:-64}" 64
 require_setting VLLM_SCHEDULING_POLICY "${VLLM_SCHEDULING_POLICY:-priority}" priority
 require_setting VLLM_MAX_NUM_BATCHED_TOKENS "${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}" 8192
 require_setting VLLM_GPU_MEMORY_UTILIZATION "${VLLM_GPU_MEMORY_UTILIZATION:-0.92}" 0.92
 require_setting VLLM_KV_CACHE_DTYPE "${VLLM_KV_CACHE_DTYPE:-fp8}" fp8
 require_setting VLLM_ATTENTION_BACKEND "${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}" TRITON_ATTN
 require_setting VLLM_MOE_BACKEND "${VLLM_MOE_BACKEND:-flashinfer_cutlass}" flashinfer_cutlass
+require_setting VLLM_MTP_NUM_SPECULATIVE_TOKENS "${VLLM_MTP_NUM_SPECULATIVE_TOKENS:-0}" 0
 require_setting VLLM_KV_CACHE_DTYPE_SKIP_LAYERS "${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}" ''
 
 echo "Host: $(hostname) ($(uname -srmo))"
@@ -96,11 +97,12 @@ for name, expected in {
     "ON_PREM_VLLM_MOE_BACKEND": "flashinfer_cutlass",
     "ON_PREM_VLLM_GPU_MEMORY_UTILIZATION": "0.92",
     "ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS": "8192",
-    "ON_PREM_VLLM_MAX_NUM_SEQS": "80",
+    "ON_PREM_VLLM_MAX_NUM_SEQS": "64",
     "ON_PREM_VLLM_SCHEDULING_POLICY": "priority",
     "ON_PREM_VLLM_MAX_MODEL_LEN": "32768",
     "ON_PREM_VLLM_KV_CACHE_DTYPE": "fp8",
     "ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS": "",
+    "ON_PREM_VLLM_MTP_NUM_SPECULATIVE_TOKENS": "0",
 }.items():
     if runtime_env.get(name) != expected:
         raise SystemExit(f"FAIL: live container setting {name} differs from production")
@@ -116,7 +118,11 @@ argv = json.loads(subprocess.check_output([
 ], text=True))
 if "--scheduling-policy" not in argv or argv[argv.index("--scheduling-policy") + 1] != "priority":
     raise SystemExit("FAIL: live vLLM command does not enable priority scheduling")
-print("OK: live vLLM 0.29.0 / MRV2 / Triton / CUTLASS / priority settings")
+if "--enable-prefix-caching" not in argv:
+    raise SystemExit("FAIL: live vLLM command does not enable prefix caching")
+if "--speculative-config" in argv:
+    raise SystemExit("FAIL: production must run with MTP disabled")
+print("OK: live vLLM 0.29.0 / MRV2 / Triton / CUTLASS / priority / prefix cache / MTP off")
 
 api_key = os.environ["API_KEY"]
 scraper_key = os.environ["SCRAPER_API_KEY"]

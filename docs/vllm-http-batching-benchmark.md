@@ -6,6 +6,13 @@ Sprawdzamy osobno grupy 64 i 80 sekwencji.
 
 Pomiary wykonano z polityką `fcfs`, przed późniejszym włączeniem `priority`.
 Wyniki nie mierzą korzyści z priorytetów ani ukrywania opóźnień sieci.
+To historyczny profil MTP×4 / cap 80. Aktualna produkcja używa MTP off / cap
+64; [późniejsza kontrola](vllm-cap-client-followup.md) zachowała cap 64 i dla
+krótkiego JSON-a wskazała pulę 80 pojedynczych requestów.
+
+Osobny [test przez Cloudflare](vllm-network-concurrency-benchmark.md) sprawdza
+zmienne długości JSON-a i rozdziela pulę klienta od limitu aktywnych sekwencji.
+Poniższe wyniki 8×8 dotyczą odpowiedzi o stałej długości 512 tokenów.
 
 ## Wniosek praktyczny
 
@@ -23,8 +30,8 @@ nad 64×1 wynosi około **1.8%**.
 
 Większe pule 80, 96 i 128 nie dały większej przepustowości w badanych próbach;
 zwiększały głównie kolejkę i nacisk na KV. Zajęcie całego cache nie jest celem
-samym w sobie. Wartość `max_num_seqs=80` pozostaje limitem serwera, a wielkość
-puli i paczki ustala klient.
+samym w sobie. W tym historycznym pomiarze `max_num_seqs=80` było limitem
+serwera; wielkość puli i paczki ustala klient.
 
 Wynik dotyczy lokalnego `/v1/completions`, bez streamingu, przy 8192 tokenach
 wejścia i 512 tokenach odpowiedzi na prompt. Dla rzeczywistych, różnych długości
@@ -36,7 +43,7 @@ przy paczkach może częściowo wynikać z zakończenia niektórych sekwencji
 przed resztą paczki i późniejszego dosyłania nowych. Nie oznacza mniejszego
 kosztu KV identycznych aktywnych kontekstów ani mniejszej przydzielonej puli VRAM.
 
-## Warunki pomiaru
+## Warunki historycznego pomiaru
 
 Produkcja: RTX 5090, vLLM 0.29.0, Model Runner V2, Triton attention,
 FlashInfer CUTLASS MoE, FP8 KV, MTP ×4, utilization 0.92,

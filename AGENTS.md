@@ -23,9 +23,10 @@ Keep the two recovery phases separate:
 Never put runtime secrets into the ISO or Git. The server's `.env`, Hugging
 Face authentication and Cloudflare tunnel credential are provisioned
 separately as described in the runbook. Preserve the tested production values
-`VLLM_MAX_NUM_BATCHED_TOKENS=8192`, four MTP
-tokens and the 450 W cap unless a new benchmark proves a change is better and
-stable.
+`VLLM_MAX_NUM_BATCHED_TOKENS=8192`, MTP disabled,
+`VLLM_MAX_NUM_SEQS=64` and the 450 W cap unless a new benchmark proves a change
+is better and stable. The 2026-09-15 continuous-JSON campaign replaced the
+earlier MTPx4 / 80-sequence defaults.
 The user explicitly changed `VLLM_GPU_MEMORY_UTILIZATION` from `0.90` to `0.92`
 on 2026-09-15 for more KV cache. Keep `0.92` as the configured value; retain
 `0.90` as the previous benchmarked fallback. See

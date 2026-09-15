@@ -15,7 +15,7 @@ args=(
   --trust-remote-code
   --language-model-only
   --max-model-len "${ON_PREM_VLLM_MAX_MODEL_LEN:-32768}"
-  --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-80}"
+  --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-64}"
   --scheduling-policy "${ON_PREM_VLLM_SCHEDULING_POLICY:-priority}"
   --max-num-batched-tokens "${ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
   --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.92}"
@@ -26,8 +26,16 @@ args=(
   --enable-chunked-prefill
   --async-scheduling
   --structured-outputs-config '{"backend":"xgrammar","disable_any_whitespace":true}'
-  --speculative-config '{"method":"mtp","model":"/models/gemma-4-26B-A4B-it-assistant","num_speculative_tokens":4}'
 )
+
+mtp_tokens=${ON_PREM_VLLM_MTP_NUM_SPECULATIVE_TOKENS:-0}
+[[ "$mtp_tokens" =~ ^[0-9]+$ ]] || {
+  echo "ON_PREM_VLLM_MTP_NUM_SPECULATIVE_TOKENS must be a non-negative integer." >&2
+  exit 2
+}
+if (( mtp_tokens > 0 )); then
+  args+=(--speculative-config "{\"method\":\"mtp\",\"model\":\"/models/gemma-4-26B-A4B-it-assistant\",\"num_speculative_tokens\":${mtp_tokens}}")
+fi
 
 if [[ -n "${ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}" ]]; then
   IFS=',' read -r -a skip_layers <<< "${ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS}"

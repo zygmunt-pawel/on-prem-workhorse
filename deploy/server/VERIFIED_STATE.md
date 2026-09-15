@@ -6,11 +6,21 @@ to **vLLM 0.29.0 / Model Runner V2 / Triton attention / FlashInfer CUTLASS MoE**
 GPU memory utilization remains **0.92**, as requested on 15 September.
 Priority scheduling was enabled later on the same day.
 
+**Current production profile, later on 2026-09-15:** after the
+[JSON tuning campaign](../../docs/vllm-json-tuning-benchmark.md) and a separate
+prefix-cache-disabled control, the engine is **MTP disabled /
+max_num_seqs=64 / budget 8192**, with prefix caching enabled, 32k context,
+utilization 0.92, 450 W and the original API key. The winning settings are now
+persistent in Compose, the entrypoint and server `.env`; normal recreation no
+longer returns to MTP×4 / 80.
+
 The [version report](../../docs/vllm-029-benchmark.md) and
 [KV-pressure report](../../docs/vllm-kv-pressure-benchmark.md) retain the
 original measurements, rejected backends and limits of validation.
 [HTTP batching and continuous load](../../docs/vllm-http-batching-benchmark.md)
 compare client request grouping with the same production runtime.
+[Public-route concurrency](../../docs/vllm-network-concurrency-benchmark.md)
+separately measures variable JSON outputs and a temporary active-sequence cap.
 
 ## Host (hardware/software inventory from 2026-09-04)
 
@@ -47,25 +57,25 @@ It remains at `/home/server/.cache/vllm-gemma4-bench` for rollback. Production
 0.29 mounts `/home/server/.cache/vllm-gemma4-v029`; the new cache is independent
 of benchmark result directories.
 
-## Runtime configuration
+## Committed deployment configuration
 
 - custom image: `on-prem-workhorse-vllm:v0.29.0-gemma4-mtp`;
 - upstream base: `vllm/vllm-openai:v0.29.0`, pinned digest
   `sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1`;
 - deployed custom image ID:
-  `sha256:fdad1714a29f31d7f558362739e4816bccf1d371fc9f74a0cf376b00f4d48dd1`;
+  `sha256:43a6717879ade61678ca52a4c208c7698cbdb8c5f11203997c16689098ba367f`;
 - explicitly selected Model Runner V2 (`VLLM_USE_V2_MODEL_RUNNER=1`);
 - explicitly selected attention backend: `TRITON_ATTN`;
 - served primary alias: `gemma-4-26B-A4B-it`;
 - maximum context per sequence: 32,768 tokens;
-- maximum admitted sequences: 80;
+- maximum admitted sequences: 64;
 - scheduling policy: `priority` (lower request values first, default `0`);
 - scheduler budget: 8,192 batched tokens;
 - GPU memory utilization: 0.92;
-- KV cache: FP8; live warm-start pool **8.86 GiB**, estimated **147,129 tokens**;
+- KV cache: FP8; live warm-start pool **10.26 GiB / 170,293 tokens** with MTP disabled;
 - prefix caching, chunked prefill and asynchronous scheduling enabled;
 - xgrammar structured-output backend;
-- Gemma 4 MTP speculative decoding with four draft tokens;
+- Gemma 4 MTP speculative decoding disabled (`VLLM_MTP_NUM_SPECULATIVE_TOKENS=0`);
 - selected NVFP4 MoE backend: `FLASHINFER_CUTLASS`.
 
 The compatibility fix for the official Gemma 4 assistant is included upstream;
@@ -97,6 +107,142 @@ No secret value is recorded here.
 No Hugging Face token file was present after the verified downloads. If a
 future gated download requires one, it lives in the server account's Hugging
 Face cache rather than this repository and may be logged out after verification.
+
+## Production JSON tuning: 2026-09-15
+
+The [further tuning campaign](../../docs/vllm-json-tuning-benchmark.md) completed
+18 valid measured phases, validating **12,760 JSON outputs**. It tested MTP×2,
+×1 and off; budgets 6144, 8192 and 10240; then active caps 48, 56 and 64.
+Every phase used 100 individual requests in flight, the same 8192-token
+synthetic prompts, approximately 142 output tokens, public HTTPS and priority 0.
+There were no request errors, token-accounting mismatches or measured preemptions.
+
+The selected configuration was **MTP off / budget 8192 / cap 64**. Its final
+two confirmations averaged **8.79 JSON/s / 1251 output tokens/s**, versus
+**7.91 / 1139** in the final MTP×2 / 8192 / 56 control: +11.0% JSON/s.
+Mean measured active KV was 76.2%, sampled GPU utilization 95.1%.
+The evidence for disabling MTP is stronger than the small cap-64 gain over
+cap 56; the report separates initial selection and final confirmation.
+
+The user requested keeping the selected runtime. Automatic restoration had
+started and was interrupted; the selected container was then recreated with
+the **original API key**. It has 32k context, utilization 0.92, 450 W,
+the same image/backends, no MTP and a warm **10.26 GiB** KV pool.
+The normal API key, missing-key rejection, structured chat JSON, local/public
+health and models, scraper fetch, service restart counts and power cap passed
+the adapted verifier. `.env` SHA-256 is unchanged; the temporary key was removed.
+
+The selected settings were initially retained through
+`benchmark-results/json-tuning-20260915/entrypoint-0-8192-64.sh` and
+`compose-0-8192-64.json`. After the prefix-cache control confirmed the choice,
+they were promoted to the root Compose definition, production entrypoint,
+`.env.example`, server `.env` and `deploy/server/verify.sh`. The production
+verifier now requires cap 64, prefix caching and absence of
+`--speculative-config`.
+
+The persistent promotion rebuilt the custom image and recreated only
+`ik-llama`; the benchmark entrypoint bind-mount is absent from the resulting
+container. Its live argv has `--max-num-seqs 64`, `--enable-prefix-caching`,
+`--scheduling-policy priority` and no `--speculative-config`. The environment
+has `VLLM_MTP_NUM_SPECULATIVE_TOKENS=0`, the warm KV allocation is 10.26 GiB /
+170,293 tokens, and the new image ID is recorded above. The full production
+verifier passed with zero container restarts: host/GPU/450 W, runtime backends,
+priority request, local and public auth/health/models, structured JSON, scraper
+auth/fetch and Cloudflare health.
+
+Artifacts: `benchmark-results/json-tuning-20260915/`, including
+`restore-cancelled.json`, `kept-best.json` and `verification-kept.log`.
+Compact results: `benchmarks/reddit-matching/json-tuning-results-20260915.json`.
+
+### Prefix-cache-disabled control
+
+To isolate MTP from shared-prefix reuse, a clean control used explicit
+`--no-enable-prefix-caching`, cap 40, 100 requests in flight and two warm
+60-second windows per variant. Both sides had zero cache hits and zero
+preemptions. MTP-off delivered **3.207 JSON/s / 453.1 output tokens/s** versus
+**3.129 / 438.2** for MTP×2: +2.47% JSON/s and +3.42% output tokens/s.
+MTP shortened decode by only about 0.8%, while its mean prefill time was 0.701 s
+versus 0.526 s without MTP and active KV was 87.4% versus 75.7%.
+
+This confirms that MTP is a net loss even with cache reuse removed for this
+short-output profile. The much larger cached-workload advantage is mainly the
+interaction of MTP with prefix-cache coverage and the smaller KV pool; these
+nonlinear effects are not treated as an additive decomposition. Prefix caching
+itself remains essential: disabling it reduced throughput from about 8.8 to
+3.2 JSON/s. Raw artifacts and summary:
+`benchmark-results/prefix-control-20260915/`.
+
+### Cap and client-pool follow-up
+
+A later public-route follow-up compared cap 64 and 72 with client pools 80,
+100 and 120; the user stopped it before cap 80. Cap 72's best comparable mean
+was only about 1.6% higher in JSON/s than cap 64 / pool 80, while output tok/s
+was 2.1% lower, mean KV 9.5 percentage points higher and HTTP p95 27.6% higher.
+It did not clear the previously defined practical 2% threshold. Larger client
+pools mostly increased queueing; pool 80 is recommended for this synthetic
+8k-prompt/short-JSON profile.
+
+Two cap-64 public-route repetitions were excluded because the client path
+underfilled the engine; no engine errors, preemptions or restarts occurred.
+After the user stopped the campaign, production was recreated at cap 64 with
+the original API key. The full verifier passed and the temporary key was
+removed. Report: [cap/client follow-up](../../docs/vllm-cap-client-followup.md).
+Compact data: `benchmarks/reddit-matching/cap-client-results-20260915.json`.
+
+## Public-route concurrency validation: 2026-09-15
+
+The [network benchmark](../../docs/vllm-network-concurrency-benchmark.md)
+compared client pools, HTTP grouping and variable-length JSON outputs via
+Cloudflare. Twenty valid phases completed **11,711 sequences**, including
+**9,134 schema-validated JSON outputs**. Two rejected phases remain documented:
+unrelated inference before access isolation, and a connection-establishment
+error during the first 128-request trial; its repeat passed.
+
+For 8,192-token prompts and this synthetic JSON schema (about 142 output tokens),
+the best tested combination was a temporary engine cap of 56 and 100 individual
+requests in flight: **7.64 JSON/s / 1,081 output tokens/s**, mean active KV 82.3%,
+mean sampled GPU utilization 91.6%, no preemption in that phase. A 100-request
+pool with the original engine cap of 80 delivered 6.64 JSON/s in its longer
+confirmation. This is workload-specific evidence, not a global replacement
+for the production scheduler limit.
+
+The cap-56 initial compilation gave 8.38 GiB KV; a second, warm start gave
+8.96 GiB, used for both cap-56 measurements. The original `.env` was untouched;
+temporary API-key and sequence-limit overrides were confined to test containers.
+At the end of that earlier campaign, production was restored to
+**max_num_seqs=80**, priority scheduling and the original API key. Later
+campaigns replaced it with the current no-MTP / 64 profile. Restoration verification is retained under
+`benchmark-results/network-auth-20260915/` on the server, with a copy alongside
+the client-side network artifacts. Runtime flags, authentication, structured
+JSON, scraper fetch, public access and the 450 W limit are checked again.
+
+## MTP depth validation: 2026-09-15
+
+The [MTP JSON comparison](../../docs/vllm-mtp-json-benchmark.md) tested two,
+three and four draft tokens at a temporary cap of 56 / 100 individual requests
+in flight. Two 90-second measurements per setting validated **5401 JSONs**,
+with no request errors or measured preemptions. Mean throughput was 7.64 JSON/s
+for MTP×4, 7.90 for ×3 and 7.92 for ×2. The latter two are effectively tied
+at this measurement scope. Warm KV pools were 8.96 / 9.02 / 9.06 GiB respectively.
+The separately prepared shorter profile was cancelled before inference.
+
+The then-current production configuration (80 sequences / MTP×4 / original API key)
+was restored after that test, and the full deployment verifier passed. Raw artifacts and
+restoration verification: `benchmark-results/mtp-network-20260915/`.
+
+## Context-limit validation: 2026-09-15
+
+A [short 16k comparison](../../docs/vllm-mtp-json-benchmark.md#limit-kontekstu-16k-i-większa-liczba-aktywnych-sekwencji)
+used MTP×2 and 100 individual in-flight requests, testing active caps 56, 80 and
+100 with the same 8192-token JSON prompts. One 60-second measurement per cap
+validated **1827 JSONs**. At cap 56, KV stayed 9.06 GiB and throughput was
+1133 output tokens/s, matching the earlier 32k baseline. Caps 80 / 100 gave
+972 / 979 tokens/s, about 96% mean active KV and three preemptions each.
+There is no measured throughput benefit from lowering the context limit or
+raising active concurrency for this profile. Warm KV at caps 80 / 100 was
+8.92 / 8.85 GiB. The then-current 32k / 80 / MTP×4 configuration and original
+API key were restored; the full deployment verifier passed. Artifacts:
+`benchmark-results/context16k-20260915/`.
 
 ## Priority scheduling validation: 2026-09-15
 

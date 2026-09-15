@@ -27,7 +27,7 @@ One RTX 5090 GPU box runs the stack. Only the LLM has a public ingress:
    Host: server (RTX 5090, current DHCP 192.168.1.15) docker compose
    ┌────────────────────────────────────────────────────────────┐
    │  cloudflared          named tunnel → 127.0.0.1:8090        │
-   │  ik-llama     :8090   Gemma 4 26B-A4B NVFP4 + MTP (~30 GB VRAM)│
+   │  ik-llama     :8090   Gemma 4 26B-A4B NVFP4 (MTP off, ~30 GB VRAM)│
    │  scraper      :3000   Playwright + HTML→Markdown            │
    └────────────────────────────────────────────────────────────┘
 ```
@@ -52,14 +52,22 @@ its own (`SCRAPER_API_KEY`). The public tunnel allows only `/health` and
 ### LLM (5090) — `192.168.1.15:8090`
 
 OpenAI-compatible **vLLM 0.29.0** server running NVIDIA's
-**Gemma 4 26B-A4B NVFP4** checkpoint with Google's official Gemma 4 assistant
-for **MTP speculative decoding**. The server admits up to 80 independent
-sequences with at most 32k context each. The LeadsRun client deliberately caps
-itself at 64 sequences and 220k conservatively estimated in-flight tokens,
+**Gemma 4 26B-A4B NVFP4** checkpoint. Production runs with **MTP disabled** and
+admits up to 64 independent sequences with at most 32k context each. The
+LeadsRun client deliberately caps itself at 64 sequences and 220k conservatively estimated in-flight tokens,
 leaving headroom for scheduling and transient MoE workspace. The server uses
 FP8 KV cache, CUDA graphs, prefix caching, chunked prefill, asynchronous
 scheduling, Model Runner V2, explicit `TRITON_ATTN` attention, and the
 `FLASHINFER_CUTLASS` NVFP4 MoE kernel on the RTX 5090.
+
+This configuration is the promoted winner of the
+[2026-09-15 JSON tuning campaign](docs/vllm-json-tuning-benchmark.md):
+**MTP disabled / 64 active sequences / batch 8192**, context 32k and utilization
+0.92. It is declared in Compose and the server `.env`, so normal recreation and
+reboot preserve it. See the [live inventory](deploy/server/VERIFIED_STATE.md).
+The [64/72 follow-up](docs/vllm-cap-client-followup.md) found no worthwhile
+reason to raise the server cap and recommends a client pool of 80 for this
+specific 8k-prompt/short-JSON profile.
 
 ```bash
 curl https://model.leads.run/v1/chat/completions \
@@ -73,15 +81,16 @@ use the same bearer key. Endpoints: `/v1/chat/completions`, `/v1/models`,
 `/health`.
 
 Notes:
-- **MTP uses four speculative tokens.** Matched warm tests measured ~245 tok/s
-  for one long response and ~1,435 tok/s aggregate for eight unrelated long
-  prompts. Eight constrained-JSON requests reached ~1,811 tok/s. MTP values 1
-  through 6 were tested; four was the fastest and most stable general setting.
+- **MTP is disabled in production.** For 8k prompts with a large shared prefix,
+  short JSON outputs and high concurrency, no-MTP delivered 8.79 JSON/s versus
+  7.91 with MTPx2. A prefix-cache-disabled control still favored no-MTP by
+  2.5% JSON/s; MTP only shortened decode by about 0.8% and increased prefill
+  and KV pressure. Set `VLLM_MTP_NUM_SPECULATIVE_TOKENS` above zero only for a
+  controlled test of a different workload, such as long generations.
 - **Context is dynamic, not eight fixed slots.** The production FP8 KV cache
-  measured 8.86 GiB on warm vLLM 0.29/MRV2 benchmark starts. PagedAttention
-  shares that pool between as many as 80 shorter sequences. The logged
-  147,129-token estimate uses a different async-scheduling calculation than
-  0.25; it is not a count of fixed slots or a directly comparable physical capacity. A single sequence
+  measured 10.26 GiB with MTP disabled on warm vLLM 0.29/MRV2 starts. PagedAttention
+  shares that pool between as many as 64 shorter sequences. The logged token
+  estimate is not a count of fixed slots or a directly comparable physical capacity. A single sequence
   may use at most 32,768 tokens. The exact pool can vary slightly with the
   driver/compiler build because vLLM profiles CUDA graph memory at startup.
 - **The production scheduler uses 8192 batched tokens.** This exact Reddit
@@ -202,7 +211,8 @@ The Gemma 4 MTP compatibility fix is upstream; no local model patch is applied.
 Keep MRV2, Triton attention and FlashInfer CUTLASS MoE when rebuilding.
 See the [migration and benchmark conclusions](docs/vllm-029-benchmark.md),
 [full-cache comparison](docs/vllm-kv-pressure-benchmark.md), and
-[HTTP batching / continuous-load measurements](docs/vllm-http-batching-benchmark.md).
+[HTTP batching / continuous-load measurements](docs/vllm-http-batching-benchmark.md),
+and [public-route concurrency and variable JSON outputs](docs/vllm-network-concurrency-benchmark.md).
 If the container crashloops after a
 rebuild, check `docker logs ik-llama` first.
 
@@ -218,12 +228,13 @@ Copy `.env.example` to `.env` and fill in:
 | `MODEL_DIR` | Host root containing the two snapshots below `MODEL_DIR/hf` |
 | `VLLM_CACHE_DIR` | Persistent vLLM compile/CUDA graph cache directory |
 | `VLLM_MAX_MODEL_LEN` | Maximum context per 5090 sequence; production `32768` |
-| `VLLM_MAX_NUM_SEQS` | Server-side sequence ceiling; production `80` |
+| `VLLM_MAX_NUM_SEQS` | Server-side sequence ceiling; production `64` |
 | `VLLM_MAX_NUM_BATCHED_TOKENS` | Scheduler token budget per iteration; production `8192` |
 | `VLLM_GPU_MEMORY_UTILIZATION` | Fraction reserved by vLLM; production `0.92` |
 | `VLLM_KV_CACHE_DTYPE` | KV cache format; production `fp8` |
 | `VLLM_ATTENTION_BACKEND` | Attention implementation; production `TRITON_ATTN` |
 | `VLLM_MOE_BACKEND` | MoE implementation; production `flashinfer_cutlass` |
+| `VLLM_MTP_NUM_SPECULATIVE_TOKENS` | MTP draft depth; production `0` (disabled) |
 
 If `SCRAPER_API_KEY` is empty, the scraper registers **no** auth hook and every
 endpoint becomes open — keep it set. Same applies to `API_KEY` for the LLM.

@@ -5,7 +5,8 @@ obliczeń i zapamiętany kontekst zapytań. Od tego podziału zależy, ile pracy
 może wykonywać równocześnie.
 
 Przejdźmy przez ten mechanizm na przykładzie **RTX 5090, vLLM 0.29 i Gemmy 4
-26B-A4B NVFP4 z asystentem MTP**. Przy każdym ustawieniu wyjaśniamy, na co
+26B-A4B NVFP4**. Produkcja ma obecnie MTP wyłączone; snapshot asystenta
+pozostaje na dysku wyłącznie do kontrolowanych testów. Przy każdym ustawieniu wyjaśniamy, na co
 wpływa i jaką wartość przyjmujemy w naszym wdrożeniu.
 
 ## 1. Zaczynamy od całej pamięci karty
@@ -55,24 +56,19 @@ przez cały czas dokładnie 8% fizycznie wolnego VRAM.
 **Wagi** to wyuczone parametry modelu. Są potrzebne przy każdym przetwarzanym
 tokenie — fragmencie tekstu, na którym operuje model.
 
-Pracują tu dwa modele:
+W produkcji pracuje jeden model:
 
 - **Model główny: Gemma 4 26B-A4B NVFP4.** Przetwarza kontekst i wyznacza
   odpowiedź. Format NVFP4 zapisuje wiele jego wag w zwartej, czterobitowej
   reprezentacji, zmniejszając ich zapotrzebowanie na pamięć.
-- **Asystent MTP: Gemma 4 26B-A4B IT Assistant.** Proponuje kolejne tokeny
-  odpowiedzi do weryfikacji przez model główny. Używamy go z ustawieniem
-  `num_speculative_tokens=4`.
+- **Opcjonalny asystent MTP: Gemma 4 26B-A4B IT Assistant.** Jego snapshot
+  jest zainstalowany, ale `VLLM_MTP_NUM_SPECULATIVE_TOKENS=0` oznacza, że
+  produkcyjny proces go nie ładuje. Można go włączyć dodatnią wartością tylko
+  do kontrolowanego porównania.
 
-Razem ich załadowanie zajmuje tutaj około **17,64 GiB pamięci GPU**.
-
-Po odjęciu tego od budżetu zostaje:
-
-```text
-29,30 GiB − 17,64 GiB = około 11,66 GiB
-```
-
-Ta pozostała część posłuży do wykonywania obliczeń i przechowywania kontekstów.
+Aktualny profiler startowy raportuje około **17,32 GiB** łącznie dla wag i
+alokacji poza PyTorch. Nie jest to pomiar samych wag. Pozostała część budżetu
+służy aktywacjom, grafom CUDA i przechowywaniu kontekstów.
 
 **Wszystkie zapytania korzystają z tych samych wag.** Jeśli obsługujemy
 20 zapytań równocześnie, model jest załadowany raz. To przede wszystkim
@@ -93,12 +89,13 @@ Dla naszej konfiguracji orientacyjny podział budżetu wygląda tak:
 
 | Część budżetu vLLM | Pamięć |
 |---|---:|
-| Załadowane modele, łącznie z MTP | 17,64 GiB |
-| Pozostałe alokacje i rezerwy uwzględnione w przydziale | około 2,80 GiB |
-| KV cache — wspólna pula na konteksty sekwencji | około 8,86 GiB |
-| **Razem** | **około 29,30 GiB** |
+| Wagi i pamięć poza PyTorch raportowana przy starcie | 17,32 GiB |
+| Szczyt aktywacji w profilu | 1,27 GiB |
+| Grafy CUDA | 0,09 GiB |
+| KV cache — wspólna pula na konteksty sekwencji | 10,26 GiB |
+| **Razem, orientacyjnie** | **28,94 GiB** |
 
-**Mamy więc około 8,86 GiB wspólnej puli na stan sekwencji: ich prompty
+**Mamy więc około 10,26 GiB / 170 293 tokenów wspólnej puli na stan sekwencji: ich prompty
 oraz wygenerowane tokeny odpowiedzi.** Są to reprezentacje K i V używane
 przez uwagę. Każda obsługiwana sekwencja korzysta z potrzebnych jej bloków
 tej puli, a jej kontekst rośnie podczas generowania.
@@ -181,24 +178,25 @@ Przy odpowiedzi bez streamingu jedno żądanie z 64 promptami zwraca wynik,
 gdy zakończą się wszystkie jego sekwencje. Przy 64 osobnych żądaniach każdą
 odpowiedź można odebrać oddzielnie i od razu wysłać następne zadanie.
 
-### `--max-num-seqs 80`: ile sekwencji może pracować równocześnie
+### `--max-num-seqs 64`: ile sekwencji może pracować równocześnie
 
-Przy uruchamianiu vLLM podajemy **`--max-num-seqs 80`**. Nazwa tego samego
+Przy uruchamianiu vLLM podajemy **`--max-num-seqs 64`**. Nazwa tego samego
 ustawienia w konfiguracji to `max_num_seqs`.
 
 To górny limit liczby sekwencji obsługiwanych w jednej iteracji schedulera.
 Scheduler — część vLLM rozdzielająca pracę — musi jednocześnie zmieścić ich
 stan w dostępnej puli KV cache i przestrzegać budżetu tokenów danej iteracji.
 
-**Te 80 sekwencji współdzieli około 8,86 GiB KV cache.** Nie dostają po
-8,86 GiB każda, a pula nie jest też dzielona na 80 równych, stałych części.
+**Te 64 sekwencje współdzielą około 10,26 GiB KV cache.** Nie dostają po
+10,26 GiB każda, a pula nie jest też dzielona na 64 równe, stałe części.
 Bloki są przydzielane według potrzeb kontekstów; zgodne prefiksy mogą być
 współdzielone.
 
 Dlatego krótkich kontekstów może pracować równocześnie więcej niż długich.
-Limit 80 dopuszcza taką równoległość, ale nie gwarantuje, że dowolne
-80 zapytań zmieści się naraz. Pozostałe zapytania czekają w kolejce.
-**W naszej konfiguracji pozostawiamy `--max-num-seqs 80`.**
+Limit 64 dopuszcza taką równoległość, ale nie gwarantuje, że dowolne
+64 zapytania zmieszczą się naraz. Pozostałe zapytania czekają w kolejce.
+**W naszej konfiguracji pozostawiamy `--max-num-seqs 64`.** Kontrola cap 72
+dała zbyt mały zysk względem wyższego KV i p95, aby zmieniać produkcję.
 
 Nie oznacza to obowiązku wysyłania paczek po 80 promptów. Można wysłać
 80 promptów w jednym żądaniu lub utrzymywać 80 pojedynczych żądań w toku.
@@ -224,6 +222,11 @@ i dośle nowe. Liczba requestów w toku obejmuje aktywne, oczekujące oraz
 będące w drodze; nie jest liczbą zajętych slotów GPU. Zapas dobieramy do
 opóźnień sieci i tempa kończenia zadań. Większy backlog nie zwiększa
 pojemności KV ani samej szybkości GPU.
+
+Limit aktywnej pracy i wielkość zapasu dobieramy osobno: `max_num_seqs`
+ogranicza pracę silnika, a pula klienta określa, ile zadań już wysłaliśmy.
+Większa pula klienta przy niezmienionym, wysokim limicie silnika może
+zwiększyć zarówno kolejkę, jak i liczbę aktywnych sekwencji.
 
 Serwer nie ma u nas ustawionego limitu kolejki, dlatego aplikacja powinna
 ograniczać liczbę requestów w toku. Opcjonalny `--max-num-queued-reqs`
@@ -252,6 +255,12 @@ Limit dobieramy, obserwując przepustowość, opóźnienia i wykorzystanie KV
 pod typowym obciążeniem. Wypieranie aktywnych zadań z cache (*preemption*)
 oznacza dodatkową pracę przy późniejszym odtworzeniu ich stanu. Większy limit
 ma sens, jeśli poprawia przepustowość bez nadmiernego kosztu takiego odtwarzania.
+
+100% GPU utilization oznacza, że karta jest zajęta, ale nie gwarantuje
+największej liczby gotowych wyników. Dla zadań JSON mierzymy przede wszystkim
+poprawne odpowiedzi na sekundę przy reprezentatywnych promptach. Same t/s
+porównujemy przy podobnych długościach odpowiedzi: wiele krótkich JSON-ów
+może dawać mniej tokenów na sekundę niż mniejsza liczba długich odpowiedzi.
 
 ### `--max-model-len 32768`: jak długa może być jedna sekwencja
 
@@ -345,32 +354,35 @@ dla danego tokenu wybierana jest część z nich.
 Te backendy wykonują różne części pracy i działają razem. Wybieramy więc
 **MRV2 + Triton attention + FlashInfer CUTLASS MoE**.
 
-## 9. Jak MTP przyspiesza generowanie odpowiedzi?
+## 9. Dlaczego MTP jest obecnie wyłączone?
 
 Zwykłe generowanie dopisuje kolejne tokeny na podstawie dotychczasowego
 kontekstu. **MTP** wykorzystuje asystenta, który proponuje kilka następnych
 tokenów, a model główny weryfikuje propozycję.
 
-Ustawiamy **cztery tokeny spekulacyjne**. Jeśli propozycje zostaną zaakceptowane,
+W historycznej konfiguracji ustawialiśmy **cztery tokeny spekulacyjne**. Jeśli propozycje zostaną zaakceptowane,
 jedna weryfikacja pozwala posunąć odpowiedź o kilka tokenów do przodu.
 Odrzucone propozycje są korygowane zgodnie z wynikiem modelu głównego.
 
 Liczba cztery określa długość propozycji. Nie oznacza gwarantowanego
 czterokrotnego przyspieszenia: propozycje też trzeba obliczyć, a nie każda
-zostanie przyjęta w całości. Asystent zajmuje część pamięci GPU — jego koszt
-jest już uwzględniony w opisanym wcześniej ładowaniu modeli.
+zostanie przyjęta w całości. Asystent zajmuje też część pamięci GPU. Dla
+naszego profilu 8k promptu, wspólnego prefiksu, krótkiego JSON-a i wysokiej
+współbieżności ten koszt się nie zwrócił. MTP×2 skróciło decode tylko o około
+0,8%, zwiększając koszt prefill i nacisk na KV. Produkcja używa więc wartości
+`0`, czyli MTP off.
 
 ## 10. Złóżmy to w przebieg jednego zapytania
 
 Wysyłasz 12 000 tokenów wejścia i przewidujesz odpowiedź do 2000 tokenów.
 
 1. **Limit kontekstu:** do 14 000 tokenów mieści się w `max_model_len=32768`.
-2. **Przyjęcie do pracy:** scheduler uwzględnia limit 80 sekwencji i dostępne
+2. **Przyjęcie do pracy:** scheduler uwzględnia limit 64 sekwencji i dostępne
    bloki KV cache. W razie potrzeby zapytanie czeka na swoją kolej.
 3. **Prefill:** wspólny początek może skorzystać z prefix cache. Pozostałe
    tokeny są przetwarzane w porcjach mieszczących się w budżecie iteracji 8192.
-4. **Decode:** model korzysta z KV cache w formacie FP8. Asystent MTP proponuje
-   po cztery tokeny, które weryfikuje model główny.
+4. **Decode:** model główny korzysta z KV cache w formacie FP8. Produkcyjne
+   MTP jest wyłączone, więc nie uruchamiamy dodatkowego kroku asystenta.
 5. **Zakończenie:** zapytanie oddaje zajęte miejsce w grupie aktywnych sekwencji.
    Bloki KV mogą zostać ponownie wykorzystane; zachowane prefiksy mogą przydać
    się następnym zapytaniom.
@@ -380,5 +392,5 @@ Osobno host utrzymuje limit mocy **450 W** — ten parametr dotyczy poboru
 energii GPU, a nie podziału VRAM.
 
 W ten sposób ustawienia tworzą jedną całość: budżet pamięci mieści model
-i konteksty, scheduler dzieli pracę, backendy wykonują obliczenia, a MTP
-pozwala sprawniej dopisywać odpowiedź.
+i konteksty, scheduler dzieli pracę, a wybrane backendy wykonują obliczenia.
+MTP pozostaje opcją testową dla innych profili, szczególnie długich odpowiedzi.
