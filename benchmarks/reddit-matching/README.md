@@ -2,7 +2,8 @@
 
 **Production, 2026-09-15:** vLLM **0.29.0 / MRV2**, Triton attention,
 FlashInfer CUTLASS MoE, FP8 KV, utilization **0.92**, batch **8192**, MTP×4,
-450 W. Results later in this document are the historical 0.25 scheduler and
+450 W, priority scheduling. The HTTP load measurements predate enabling priority
+and used FCFS. Results later in this document are the historical 0.25 scheduler and
 power experiments, with their original settings; they are not new 0.29 runs.
 The matrix cleanup restores utilization read from `.env` at startup.
 
@@ -18,6 +19,33 @@ Current evidence and decisions:
   prompt lists versus concurrent requests, shared prefixes, and a continuously
   replenished pool of 64 or 80 requests.
 - [Live inventory and post-migration checks](../../deploy/server/VERIFIED_STATE.md).
+
+### Priority queue verification
+
+`verify-priority.py` tests the deployed priority scheduler using streaming
+`/v1/completions`. It fills 80 slots with 1,024-token responses, observes eight
+ordinary requests waiting, then submits an urgent request (`priority=-10`).
+Both trials on 2026-09-15 delivered urgent text before all eight queued ordinary
+responses: **178/178 responses** passed token-count, finish-reason and complete
+stream checks. First urgent text still took **6.05 / 5.88 s** after submission.
+This is a queue-order check, not a throughput or WAN-concurrency benchmark.
+
+Run only against an idle engine during an isolated maintenance window; it uses
+the installed `aiohttp` and the container's existing `VLLM_API_KEY`:
+
+```bash
+docker cp benchmarks/reddit-matching/verify-priority.py ik-llama:/tmp/verify-priority.py
+docker exec ik-llama python3 /tmp/verify-priority.py
+docker cp ik-llama:/tmp/priority-result.json ./priority-result.json
+```
+
+Raw results, source snapshot and post-test deployment verification are under
+`benchmark-results/priority-20260915/`. Compact results and hashes are tracked
+in `priority-results-20260915.json`. The public tunnel was paused during these
+trials and restored before final verification. No optimal larger client backlog
+has been established by this test.
+
+### Version comparison tools
 
 `compare-versions.py` stops production, tests isolated containers and restarts
 the original container in `finally`. Explicit `v025` selects the retained

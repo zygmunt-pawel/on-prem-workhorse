@@ -206,6 +206,32 @@ Mniejsza liczba również może dobrze wykorzystywać GPU. Przy ciągłym strumi
 zadań klient uzupełnia swoją pulę: po odebraniu wyniku wysyła kolejne zadanie,
 zachowując wybrany limit równoległości.
 
+### Kolejka i priorytety zadań
+
+Uruchamiamy serwer z **`--scheduling-policy priority`**. W treści JSON
+żądania można podać `"priority": -10` dla pilnego zadania, `0` dla zwykłego
+i `10` dla pracy w tle. Mniejsza liczba oznacza wcześniejszą obsługę;
+brak pola oznacza `0`, a przy równych priorytetach decyduje czas przyjścia.
+
+Priorytet pozwala wyprzedzić zadania oczekujące, ale nie gwarantuje
+natychmiastowego rozpoczęcia przy zajętym GPU. Pilne zadanie trzeba też
+wysłać z aplikacji od razu, bez czekania na wolne miejsce w jej puli
+zwykłych requestów.
+
+Przy połączeniu przez sieć warto utrzymywać zapas zadań już oczekujących
+w vLLM. Serwer może wtedy rozpocząć następne, zanim klient odbierze wynik
+i dośle nowe. Liczba requestów w toku obejmuje aktywne, oczekujące oraz
+będące w drodze; nie jest liczbą zajętych slotów GPU. Zapas dobieramy do
+opóźnień sieci i tempa kończenia zadań. Większy backlog nie zwiększa
+pojemności KV ani samej szybkości GPU.
+
+Serwer nie ma u nas ustawionego limitu kolejki, dlatego aplikacja powinna
+ograniczać liczbę requestów w toku. Opcjonalny `--max-num-queued-reqs`
+ogranicza **łącznie aktywne i oczekujące**; po osiągnięciu limitu nowe
+żądanie dostaje HTTP 503, także jeśli ma wysoki priorytet. Timeout klienta
+musi uwzględniać oczekiwanie. Duży zbiór zadań przechowujemy w kolejce
+aplikacji, a do vLLM wysyłamy zapas zapewniający ciągłość pracy.
+
 ### Jak dobierać liczbę aktywnych sekwencji?
 
 Punktem wyjścia jest oszacowanie:

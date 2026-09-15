@@ -4,6 +4,7 @@ This records the RTX 5090 production deployment. Host and model inventory
 was fully verified on **2026-09-04**; runtime was migrated on **2026-09-15**
 to **vLLM 0.29.0 / Model Runner V2 / Triton attention / FlashInfer CUTLASS MoE**.
 GPU memory utilization remains **0.92**, as requested on 15 September.
+Priority scheduling was enabled later on the same day.
 
 The [version report](../../docs/vllm-029-benchmark.md) and
 [KV-pressure report](../../docs/vllm-kv-pressure-benchmark.md) retain the
@@ -52,12 +53,13 @@ of benchmark result directories.
 - upstream base: `vllm/vllm-openai:v0.29.0`, pinned digest
   `sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1`;
 - deployed custom image ID:
-  `sha256:b0d4c111e81784027cd5e65fca01e324f58595f34c2d9b6dd52af84db2aeec5e`;
+  `sha256:fdad1714a29f31d7f558362739e4816bccf1d371fc9f74a0cf376b00f4d48dd1`;
 - explicitly selected Model Runner V2 (`VLLM_USE_V2_MODEL_RUNNER=1`);
 - explicitly selected attention backend: `TRITON_ATTN`;
 - served primary alias: `gemma-4-26B-A4B-it`;
 - maximum context per sequence: 32,768 tokens;
 - maximum admitted sequences: 80;
+- scheduling policy: `priority` (lower request values first, default `0`);
 - scheduler budget: 8,192 batched tokens;
 - GPU memory utilization: 0.92;
 - KV cache: FP8; live warm-start pool **8.86 GiB**, estimated **147,129 tokens**;
@@ -95,6 +97,34 @@ No secret value is recorded here.
 No Hugging Face token file was present after the verified downloads. If a
 future gated download requires one, it lives in the server account's Hugging
 Face cache rather than this repository and may be logged out after verification.
+
+## Priority scheduling validation: 2026-09-15
+
+Rebuilt the entrypoint image and recreated only `ik-llama` to enable
+`--scheduling-policy priority`. The live argv and API accept nonzero priority.
+Warm-start KV remains **8.86 GiB / 147,129 estimated tokens**.
+
+Two isolated trials each filled all 80 active slots with 1,024-token
+generations, then confirmed eight ordinary requests waiting before submitting
+one urgent request (`priority=-10`, ordinary `0`). The urgent response's first
+text arrived before every queued ordinary response in both trials. All
+**178/178 streaming completions** passed output-token count, finish reason
+and stream-completion checks. The urgent requests still waited **6.05 / 5.88 s**
+for their first text under full occupancy; priority is not immediate preemption
+of all running work or a latency guarantee.
+
+The public tunnel was paused for isolation and restored afterward. Deployment
+verification checks priority in the live process and sends a structured chat
+request with `priority=-10`. The test does not establish optimal client
+concurrency, WAN performance, or throughput under mixed priorities. Earlier
+version/cache/HTTP benchmarks retain their original FCFS measurements.
+All deployment checks passed after restoration: service health, zero automatic
+restarts, local/public authentication, structured JSON, scraper fetch and 450 W.
+
+Reproducer: `benchmarks/reddit-matching/verify-priority.py`.
+Raw results and verification: `benchmark-results/priority-20260915/`.
+The previous custom image is retained as
+`on-prem-workhorse-vllm:before-priority-20260915`; upstream vLLM is unchanged.
 
 ## Migration validation: 2026-09-15 / vLLM 0.29
 

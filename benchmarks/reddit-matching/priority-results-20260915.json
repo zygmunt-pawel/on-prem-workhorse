@@ -1,0 +1,53 @@
+{
+  "date": "2026-09-15",
+  "policy": "priority",
+  "scope": "Queue ordering only; no WAN throughput or optimal client concurrency claim",
+  "runtime": {
+    "image": "sha256:fdad1714a29f31d7f558362739e4816bccf1d371fc9f74a0cf376b00f4d48dd1",
+    "status": "passed",
+    "publicTunnelPaused": true,
+    "testExitCode": 0,
+    "publicTunnelRestored": true,
+    "verified": true
+  },
+  "trials": [
+    {
+      "repetition": 0,
+      "passed": true,
+      "full": {
+        "num_requests_running": 80.0,
+        "num_requests_waiting": 0.0
+      },
+      "queued": {
+        "num_requests_running": 80.0,
+        "num_requests_waiting": 8.0
+      },
+      "urgent_first_token": 6.5486684089992195,
+      "first_ordinary_token": 6.558407161999639,
+      "urgent_wait_seconds": 6.048120660001587,
+      "responses": 89
+    },
+    {
+      "repetition": 1,
+      "passed": true,
+      "full": {
+        "num_requests_running": 80.0,
+        "num_requests_waiting": 0.0
+      },
+      "queued": {
+        "num_requests_running": 80.0,
+        "num_requests_waiting": 8.0
+      },
+      "urgent_first_token": 6.417576473999361,
+      "first_ordinary_token": 6.475628239997604,
+      "urgent_wait_seconds": 5.882198172999779,
+      "responses": 89
+    }
+  ],
+  "artifacts": {
+    "result.json": "3c729ec3af6ca58ae5a140cbd7cc1db4f85a614235484147b2e598b414bcf197",
+    "runtime.json": "fbd18ea173ed9c80a0f126ae6d289989ca934fdab001efc15d07a9ceddceae87",
+    "verification.log": "949af9af8f4e5546e8e12195bcf023c716c0462b748b318c2043d0611679fea9",
+    "verify-priority.py": "4dcbcf9e15b9980e6b49e8073e7d661f7ddc53daec837a284af0bb98b20c442a"
+  }
+}

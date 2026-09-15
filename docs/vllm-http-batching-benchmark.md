@@ -4,6 +4,9 @@ Test z 15 września 2026 porównuje `/v1/completions` przy `n=1`:
 jedno żądanie z listą promptów oraz równoległe żądania z jednym promptem.
 Sprawdzamy osobno grupy 64 i 80 sekwencji.
 
+Pomiary wykonano z polityką `fcfs`, przed późniejszym włączeniem `priority`.
+Wyniki nie mierzą korzyści z priorytetów ani ukrywania opóźnień sieci.
+
 ## Wniosek praktyczny
 
 Dla tego profilu wybieramy **8 równoległych żądań, każde z 8 promptami**,
@@ -26,6 +29,12 @@ puli i paczki ustala klient.
 Wynik dotyczy lokalnego `/v1/completions`, bez streamingu, przy 8192 tokenach
 wejścia i 512 tokenach odpowiedzi na prompt. Dla rzeczywistych, różnych długości
 odpowiedzi JSON optimum może być inne. Nie jest to uniwersalne maksimum RTX 5090.
+
+Przewaga 1.8% nie wymaga przechodzenia na paczki: pojedyncze requesty
+pozwalają od razu odbierać i uzupełniać każde zadanie. Niższe średnie KV
+przy paczkach może częściowo wynikać z zakończenia niektórych sekwencji
+przed resztą paczki i późniejszego dosyłania nowych. Nie oznacza mniejszego
+kosztu KV identycznych aktywnych kontekstów ani mniejszej przydzielonej puli VRAM.
 
 ## Warunki pomiaru
 

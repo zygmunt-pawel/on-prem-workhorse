@@ -32,6 +32,7 @@ require_setting() {
 
 require_setting VLLM_MAX_MODEL_LEN "${VLLM_MAX_MODEL_LEN:-32768}" 32768
 require_setting VLLM_MAX_NUM_SEQS "${VLLM_MAX_NUM_SEQS:-80}" 80
+require_setting VLLM_SCHEDULING_POLICY "${VLLM_SCHEDULING_POLICY:-priority}" priority
 require_setting VLLM_MAX_NUM_BATCHED_TOKENS "${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}" 8192
 require_setting VLLM_GPU_MEMORY_UTILIZATION "${VLLM_GPU_MEMORY_UTILIZATION:-0.92}" 0.92
 require_setting VLLM_KV_CACHE_DTYPE "${VLLM_KV_CACHE_DTYPE:-fp8}" fp8
@@ -96,6 +97,7 @@ for name, expected in {
     "ON_PREM_VLLM_GPU_MEMORY_UTILIZATION": "0.92",
     "ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS": "8192",
     "ON_PREM_VLLM_MAX_NUM_SEQS": "80",
+    "ON_PREM_VLLM_SCHEDULING_POLICY": "priority",
     "ON_PREM_VLLM_MAX_MODEL_LEN": "32768",
     "ON_PREM_VLLM_KV_CACHE_DTYPE": "fp8",
     "ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS": "",
@@ -108,7 +110,13 @@ version = subprocess.check_output([
 ], text=True).strip()
 if version != "0.29.0":
     raise SystemExit(f"FAIL: unexpected live vLLM version {version}")
-print("OK: live vLLM 0.29.0 / MRV2 / Triton / CUTLASS settings")
+argv = json.loads(subprocess.check_output([
+    "docker", "exec", "ik-llama", "python3", "-c",
+    "import json; print(json.dumps(open('/proc/1/cmdline', 'rb').read().decode().split('\\0')))",
+], text=True))
+if "--scheduling-policy" not in argv or argv[argv.index("--scheduling-policy") + 1] != "priority":
+    raise SystemExit("FAIL: live vLLM command does not enable priority scheduling")
+print("OK: live vLLM 0.29.0 / MRV2 / Triton / CUTLASS / priority settings")
 
 api_key = os.environ["API_KEY"]
 scraper_key = os.environ["SCRAPER_API_KEY"]
@@ -173,6 +181,7 @@ chat_status, chat_body = request(
         "model": "gemma-4-26B-A4B-it",
         "messages": [{"role": "user", "content": "Return a JSON object with ready set to true."}],
         "max_tokens": 1024,
+        "priority": -10,
         "chat_template_kwargs": {"enable_thinking": False},
         "response_format": {"type": "json_schema", "json_schema": {
             "name": "readiness", "strict": True, "schema": {

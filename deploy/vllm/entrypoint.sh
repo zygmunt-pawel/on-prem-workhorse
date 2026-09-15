@@ -16,6 +16,7 @@ args=(
   --language-model-only
   --max-model-len "${ON_PREM_VLLM_MAX_MODEL_LEN:-32768}"
   --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-80}"
+  --scheduling-policy "${ON_PREM_VLLM_SCHEDULING_POLICY:-priority}"
   --max-num-batched-tokens "${ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
   --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.92}"
   --kv-cache-dtype "${ON_PREM_VLLM_KV_CACHE_DTYPE:-fp8}"

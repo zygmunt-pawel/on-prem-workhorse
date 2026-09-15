@@ -304,6 +304,11 @@ fix is included upstream. Keep `.92`, batch `8192`, MTP×4 and 450 W.
 Use `/home/server/.cache/vllm-gemma4-v029` for persistent compilation data;
 benchmark result directories must not be production mounts.
 
+The scheduler uses `VLLM_SCHEDULING_POLICY=priority`. Requests may set
+`priority` in the JSON body: lower numbers run earlier, the default is `0`,
+and arrival time breaks ties. Clients should bound their in-flight backlog
+and allow urgent work to bypass their own background-request pool.
+
 The first vLLM image build and first CUDA graph compilation take the longest.
 The scripts may be rerun after interruption: Docker reuses finished layers,
 model downloads resume, and Compose converges to the declared services. The

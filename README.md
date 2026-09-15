@@ -98,6 +98,10 @@ Notes:
   The previous 90% setting was raised to 92% at the operator's request on
   15 September 2026 to increase KV capacity. The memory budget and request processing are explained in
   [the memory walkthrough](docs/vllm-pamiec-krok-po-kroku.md).
+- **Request priorities.** The server runs with `--scheduling-policy priority`.
+  Set `priority` in the request JSON: lower values go first, omitted means `0`.
+  Keep a bounded client backlog and let urgent requests bypass the client's
+  background pool. Priority does not guarantee immediate GPU capacity.
 - **Thinking model.** vLLM 0.29 chat responses expose `reasoning` separately
   from `content` (0.25 used `reasoning_content`). Give a generous `max_tokens` — with a small budget the whole
   allowance can be spent on reasoning and `content` comes back empty.
