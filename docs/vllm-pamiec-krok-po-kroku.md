@@ -160,6 +160,27 @@ odpowiedzią.** Przy jednym prompcie i jednej generowanej odpowiedzi zapytanie
 odpowiada jednej sekwencji. Jedno żądanie API zawierające wiele promptów może
 uruchamiać wiele sekwencji.
 
+### Jedno żądanie z listą promptów czy wiele żądań?
+
+Dla `/v1/completions`, przy jednej odpowiedzi na prompt (`n=1`), oba sposoby
+dostarczają modelowi 64 sekwencje:
+
+| Sposób wysłania | Liczba sekwencji |
+|---|---:|
+| Jedno żądanie HTTP z listą 64 promptów | 64 |
+| 64 równoległe żądania HTTP, każde z jednym promptem | 64 |
+| 8 równoległych żądań HTTP, każde z 8 promptami | 64 |
+
+vLLM rozdziela listę promptów na osobne zadania generowania i może łączyć
+je w pracy schedulera tak samo jak sekwencje z różnych żądań. Samo wspólne
+opakowanie HTTP nie tworzy jednego dużego kontekstu ani nie scala odpowiedzi.
+Lista wiadomości `messages` w zwykłym `/v1/chat/completions` oznacza natomiast
+historię jednej rozmowy, a nie listę niezależnych promptów.
+
+Przy odpowiedzi bez streamingu jedno żądanie z 64 promptami zwraca wynik,
+gdy zakończą się wszystkie jego sekwencje. Przy 64 osobnych żądaniach każdą
+odpowiedź można odebrać oddzielnie i od razu wysłać następne zadanie.
+
 ### `--max-num-seqs 80`: ile sekwencji może pracować równocześnie
 
 Przy uruchamianiu vLLM podajemy **`--max-num-seqs 80`**. Nazwa tego samego
@@ -178,6 +199,33 @@ Dlatego krótkich kontekstów może pracować równocześnie więcej niż długi
 Limit 80 dopuszcza taką równoległość, ale nie gwarantuje, że dowolne
 80 zapytań zmieści się naraz. Pozostałe zapytania czekają w kolejce.
 **W naszej konfiguracji pozostawiamy `--max-num-seqs 80`.**
+
+Nie oznacza to obowiązku wysyłania paczek po 80 promptów. Można wysłać
+80 promptów w jednym żądaniu lub utrzymywać 80 pojedynczych żądań w toku.
+Mniejsza liczba również może dobrze wykorzystywać GPU. Przy ciągłym strumieniu
+zadań klient uzupełnia swoją pulę: po odebraniu wyniku wysyła kolejne zadanie,
+zachowując wybrany limit równoległości.
+
+### Jak dobierać liczbę aktywnych sekwencji?
+
+Punktem wyjścia jest oszacowanie:
+
+```text
+liczba sekwencji ≈ dostępna pamięć KV / koszt KV jednej sekwencji
+```
+
+Koszt obejmuje prompt i miejsce na rosnącą odpowiedź. Warto uwzględniać
+również dłuższe typowe zadania, ponieważ sama średnia nie chroni przed
+chwilą, w której jednocześnie trafi wiele długich kontekstów.
+
+W Gemmie część warstw przechowuje cały kontekst, a część tylko przesuwające
+się okno. Ponadto zgodne prefiksy mogą dzielić bloki. Dlatego proste mnożenie
+średniej liczby tokenów przez liczbę sekwencji daje jedynie orientację.
+
+Limit dobieramy, obserwując przepustowość, opóźnienia i wykorzystanie KV
+pod typowym obciążeniem. Wypieranie aktywnych zadań z cache (*preemption*)
+oznacza dodatkową pracę przy późniejszym odtworzeniu ich stanu. Większy limit
+ma sens, jeśli poprawia przepustowość bez nadmiernego kosztu takiego odtwarzania.
 
 ### `--max-model-len 32768`: jak długa może być jedna sekwencja
 
@@ -224,6 +272,36 @@ zmiana początku promptu zmienia także możliwość jego ponownego wykorzystani
 
 Dlatego stałe instrukcje warto umieszczać przed zmiennymi danymi. W naszym
 wdrożeniu prefix caching jest włączony.
+
+### Kto wybiera, która część promptu trafia do cache?
+
+**vLLM robi to automatycznie, na poziomie bloków tokenów.** Nie wpisujemy
+w treści promptu znacznika „cache do tego miejsca”. Serwer sprawdza, które
+pełne bloki początku sekwencji odpowiadają już obliczonym i dostępnym blokom.
+
+Na możliwość ponownego użycia wpływamy układem promptu. Przykład:
+
+```text
+[stałe instrukcje]
+[stały opis projektu]
+[zmienny post do oceny]
+```
+
+Dwa posty dotyczące tego samego projektu mogą współdzielić stan instrukcji
+i opisu projektu. Jeśli umieścimy unikalny identyfikator przed instrukcjami,
+początki promptów szybko przestaną być zgodne. Identyczny tekst występujący
+dopiero po różniącym się fragmencie nie odzyskuje zgodności prefiksu: wynik
+uwagi zależy również od wcześniejszego kontekstu.
+
+Granica ponownego użycia wynika więc ze zgodności tokenów, granic bloków
+i dostępności zapisanych danych. Współdzielenie może działać również między
+osobnymi żądaniami HTTP. W modelu z różnymi rodzajami uwagi, takim jak
+Gemma, muszą być dostępne dane wymagane przez każdą grupę warstw. Samo
+wcześniejsze wysłanie długiego promptu nie gwarantuje więc zachowania każdego
+jego prefiksu do późniejszego użycia.
+
+Prefix caching przyspiesza przetwarzanie wspólnego
+wejścia; odpowiedź na nowe zapytanie nadal wymaga generowania.
 
 ## 8. Kto wykonuje te obliczenia na GPU?
 

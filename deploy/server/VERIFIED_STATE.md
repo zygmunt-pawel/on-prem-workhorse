@@ -8,6 +8,8 @@ GPU memory utilization remains **0.92**, as requested on 15 September.
 The [version report](../../docs/vllm-029-benchmark.md) and
 [KV-pressure report](../../docs/vllm-kv-pressure-benchmark.md) retain the
 original measurements, rejected backends and limits of validation.
+[HTTP batching and continuous load](../../docs/vllm-http-batching-benchmark.md)
+compare client request grouping with the same production runtime.
 
 ## Host (hardware/software inventory from 2026-09-04)
 

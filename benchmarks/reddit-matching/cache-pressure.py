@@ -48,7 +48,7 @@ def parse_metrics(body):
     return result
 
 
-def make_prompts(tokenizer, mode, count, repetition, prompt_tokens, shared_tokens, run_id=""):
+def make_prompts(tokenizer, mode, count, repetition, prompt_tokens, shared_tokens, run_id="", phase_count=None):
     encode = lambda text: tokenizer.encode(text, add_special_tokens=False)
     suffix = encode("\nWrite a detailed numbered review of the operational records. "
                     "Explain gaps and actions in complete sentences.\n"
@@ -56,7 +56,7 @@ def make_prompts(tokenizer, mode, count, repetition, prompt_tokens, shared_token
     material = encode(("The team collects operational evidence from email and shared drives. "
                        "Reviewers check dates, owners, source records and missing approvals. "
                        "Every finding needs a traceable source and a concrete follow-up action.\n") * 1600)
-    phase = f"pressure-{mode}-{count}-{repetition}" + (f"-{run_id}" if run_id else "")
+    phase = f"pressure-{mode}-{count if phase_count is None else phase_count}-{repetition}" + (f"-{run_id}" if run_id else "")
 
     def block(header, size):
         tokens = encode(header)

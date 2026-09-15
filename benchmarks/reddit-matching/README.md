@@ -14,6 +14,9 @@ Current evidence and decisions:
   were roughly tied or 2.6% faster, depending on prefix sharing.
 - [How vLLM uses GPU memory](../../docs/vllm-pamiec-krok-po-kroku.md):
   a step-by-step explanation of the memory budget, KV cache, scheduling and MTP.
+- [HTTP batching and continuous load](../../docs/vllm-http-batching-benchmark.md):
+  prompt lists versus concurrent requests, shared prefixes, and a continuously
+  replenished pool of 64 or 80 requests.
 - [Live inventory and post-migration checks](../../deploy/server/VERIFIED_STATE.md).
 
 `compare-versions.py` stops production, tests isolated containers and restarts
@@ -151,3 +154,59 @@ rejects it. TurboQuant is also not a production alternative for this model: hete
 Gemma 4 page sizes remain problematic, and its interaction with speculative decoding is
 not yet sufficiently stable. These formats should be reconsidered after upstream SM120
 kernel support, not carried as production patches.
+
+## HTTP grouping and continuous load
+
+For the tested 8192-input / 512-output profile, keep **8 HTTP requests with
+8 prompts each** in flight and replace each completed request immediately.
+The final repeated measurements reached **2625 output tokens/s**, **73.6% mean
+active KV**, and no preemptions. **16×4 is effectively tied** (2629 tokens/s,
+81.3% mean KV). The server sequence limit remains 80. These are workload-specific
+results; see the report for short-run reversals and the excluded traffic-contaminated
+attempt. Thirty successful continuous phases validated 9960 sequences.
+
+`compare-http-batching.py` tests one `/v1/completions` request containing a list
+against concurrent single-prompt requests (`--prompts-per-wave 64` or `80`).
+It validates structured JSON separately and measures fixed 8192-input / 512-output
+sequences with cold or explicitly prepared shared prefixes. Each case has its own
+cache salt and connection pool. Prompt lengths are computed before timed requests;
+wall time stops when the last HTTP response has been received and parsed.
+
+`continuous-http-load.py` keeps 64 or 80 single-prompt requests in flight,
+replacing each as soon as it completes. It uses 1024 unique precomputed prompts,
+20 seconds of warm-up and a 60-second measurement interval, then drains requests.
+Two repetitions alternate pool order. Aggregate generation throughput comes from
+`vllm:generation_tokens_total`; the reported peak covers at least 10 seconds.
+Use `--cases 8x8 10x8` to compare eight or ten HTTP requests, each containing
+eight prompts. `--warmup`, `--duration`, and `--repetitions` control screening
+and confirmation runs. The fixed input-header label makes prompt banks
+comparable across concurrency settings.
+KV usage, running/waiting sequences, prefix hits and preemptions are sampled at
+250 ms. Total generation counters are checked against completed response usage
+to detect unrelated traffic or accounting problems.
+
+Run inside the existing production container with exclusive benchmark access,
+`API_KEY` provisioned through the process environment, and an output directory
+that already exists. These scripts do not restart or reconfigure vLLM:
+
+```bash
+python3 compare-http-batching.py --run-id unique-grouping-run \
+  --prompts-per-wave 80 --output /tmp/grouping-result.json
+python3 continuous-http-load.py --run-id unique-continuous-run \
+  --output /tmp/continuous-result.json
+```
+
+The scripts import adjacent helpers, so copy the benchmark directory together.
+Use the shared host benchmark lock when orchestrating runs and execute
+`deploy/server/verify.sh` afterward. Keep raw artifacts under ignored
+`benchmark-results/`; the report and compact measured summaries belong in Git.
+
+`plot-continuous-load.py` renders a completed continuous result with Matplotlib:
+
+```bash
+python3 plot-continuous-load.py /tmp/continuous-result.json /tmp/load.svg
+```
+
+It plots the first repetition of each case: generation counters over windows
+of at least 10 seconds and sampled active KV usage. The committed figure uses
+the final confirmation runs; aggregate conclusions use both repetitions.

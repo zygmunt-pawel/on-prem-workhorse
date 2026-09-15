@@ -196,8 +196,10 @@ docker compose up -d --build
 The RTX 5090 image pins vLLM to `v0.29.0` and its tested SHA-256 digest.
 The Gemma 4 MTP compatibility fix is upstream; no local model patch is applied.
 Keep MRV2, Triton attention and FlashInfer CUTLASS MoE when rebuilding.
-See the [migration and benchmark conclusions](docs/vllm-029-benchmark.md)
-and [full-cache comparison](docs/vllm-kv-pressure-benchmark.md). If the container crashloops after a
+See the [migration and benchmark conclusions](docs/vllm-029-benchmark.md),
+[full-cache comparison](docs/vllm-kv-pressure-benchmark.md), and
+[HTTP batching / continuous-load measurements](docs/vllm-http-batching-benchmark.md).
+If the container crashloops after a
 rebuild, check `docker logs ik-llama` first.
 
 ## Configuration — `.env`
