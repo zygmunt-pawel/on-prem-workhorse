@@ -29,7 +29,7 @@ stable.
 The user explicitly changed `VLLM_GPU_MEMORY_UTILIZATION` from `0.90` to `0.92`
 on 2026-09-15 for more KV cache. Keep `0.92` as the configured value; retain
 `0.90` as the previous benchmarked fallback. See
-`docs/vllm-pamiec-krok-po-kroku.md` for the production configuration guide;
+`docs/vllm-pamiec-krok-po-kroku.md` for the tutorial explaining memory and runtime settings;
 measurements and validation scope are in `docs/vllm-029-benchmark.md`.
 
 Production was migrated on 2026-09-15 to digest-pinned **vLLM 0.29.0** with

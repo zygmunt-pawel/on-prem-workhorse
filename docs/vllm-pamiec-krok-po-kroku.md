@@ -1,182 +1,235 @@
-# Pamięć GPU i konfiguracja vLLM — krok po kroku
+# Jak vLLM korzysta z pamięci GPU — krok po kroku
 
-Instrukcja dla naszego serwera **RTX 5090**, **vLLM 0.29** i modelu
-**Gemma 4 26B-A4B NVFP4** z oficjalnym asystentem MTP. Poniższe ustawienia
-stanowią domyślną konfigurację tego wdrożenia.
+Kiedy wysyłasz prompt, vLLM musi zmieścić na GPU model, dane potrzebne do
+obliczeń i zapamiętany kontekst zapytań. Od tego podziału zależy, ile pracy
+może wykonywać równocześnie.
 
-## 1. Ustaw konfigurację w `.env`
+Przejdźmy przez ten mechanizm na przykładzie **RTX 5090, vLLM 0.29 i Gemmy 4
+26B-A4B NVFP4 z asystentem MTP**. Przy każdym ustawieniu wyjaśniamy, na co
+wpływa i jaką wartość przyjmujemy w naszym wdrożeniu.
 
-Połącz się z serwerem i przejdź do repozytorium:
+## 1. Zaczynamy od całej pamięci karty
 
-```bash
-ssh server@server
-cd /home/server/on-prem-workhorse
-```
+GPU ma własną pamięć, czyli **VRAM**. To w niej podczas generowania znajdują
+się wagi modelu i dane używane przez jego obliczenia.
 
-W istniejącym pliku `.env` ustaw:
+Nasz RTX 5090 raportuje **32 607 MiB**, czyli około **31,84 GiB**. To punkt
+wyjścia do rachunku. MiB i GiB są jednostkami pamięci; 1024 MiB to 1 GiB.
 
-```dotenv
-MODEL_DIR=/home/server/models
-VLLM_CACHE_DIR=/home/server/.cache/vllm-gemma4-v029
-
-VLLM_GPU_MEMORY_UTILIZATION=0.92
-VLLM_MAX_MODEL_LEN=32768
-VLLM_MAX_NUM_SEQS=80
-VLLM_MAX_NUM_BATCHED_TOKENS=8192
-
-VLLM_KV_CACHE_DTYPE=fp8
-VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=
-VLLM_ATTENTION_BACKEND=TRITON_ATTN
-VLLM_MOE_BACKEND=flashinfer_cutlass
-```
-
-Modele znajdują się w dwóch katalogach pod `MODEL_DIR/hf`:
-
-- `Gemma-4-26B-A4B-NVFP4` — model główny;
-- `gemma-4-26B-A4B-it-assistant` — asystent MTP, który proponuje kolejne tokeny.
-
-`VLLM_CACHE_DIR` przechowuje skompilowany kod używany przy kolejnych startach.
-Katalog pozostaje na dysku po odtworzeniu kontenera. KV cache kontekstów
-zapytań jest natomiast przechowywany w pamięci GPU podczas pracy silnika.
-
-Przy przygotowaniu nowego hosta skorzystaj najpierw z
-[instrukcji instalacji serwera](../deploy/server/README.md).
-
-## 2. Pozostaw GPU memory utilization na `0.92`
-
-**Domyślna wartość to `0.92`. Pozostaw ją tak ustawioną.** Compose przekazuje
-ją do vLLM jako `--gpu-memory-utilization 0.92`.
-
-Parametr określa budżet pamięci vLLM jako udział całkowitej pamięci GPU.
-Obejmuje modele, pamięć roboczą i KV cache. Nie ogranicza wykorzystania
-mocy obliczeniowej GPU do 92%.
-
-Pojemność karty sprawdzisz poleceniem:
-
-```bash
-nvidia-smi --query-gpu=name,memory.total --format=csv
-```
-
-Dla RTX 5090 raportującego **32 607 MiB** rachunek wygląda tak:
+vLLM dostaje określony udział tej pojemności. Ustawienie
+**`gpu_memory_utilization` ma u nas domyślną wartość `0.92` i tak je zostawiamy**.
+Oznacza budżet równy 92% całkowitej pamięci GPU:
 
 ```text
-Pamięć GPU:          32 607 MiB / 1024 = 31,84 GiB
-Budżet vLLM:        31,84 GiB × 0,92 ≈ 29,30 GiB
-Poza budżetem:      31,84 GiB × 0,08 ≈  2,55 GiB
+31,84 GiB × 0,92 ≈ 29,30 GiB dla vLLM
+31,84 GiB × 0,08 ≈  2,55 GiB poza tym budżetem
 ```
 
-Budżet liczymy od całkowitej pojemności karty. Pozostała pamięć zapewnia
-miejsce na dodatkowe alokacje podczas pracy. Jej chwilową dostępność pokazuje
-`memory.free`; nie musi ona wynosić dokładnie 2,55 GiB.
+Te **29,30 GiB** trzeba teraz podzielić między kilka składników. Parametr
+obejmuje budżet pamięci, a GPU nadal może wykonywać obliczenia z pełnym
+wykorzystaniem swoich jednostek obliczeniowych.
 
-## 3. Pozwól vLLM przydzielić KV cache
+Zapas poza budżetem pozostawia miejsce na dodatkowe alokacje podczas pracy.
+Odczyt wolnej pamięci może się zmieniać: `0.92` nie oznacza utrzymywania
+przez cały czas dokładnie 8% fizycznie wolnego VRAM.
 
-KV cache przechowuje wyniki obliczeń uwagi dla tokenów kontekstu. Dzięki temu
-model może generować następne tokeny bez ponownego przeliczania całego promptu.
+## 2. Najpierw w pamięci muszą znaleźć się wagi modelu
 
-Przy starcie vLLM ładuje modele, profiluje zapotrzebowanie na pamięć i dobiera
-rozmiar KV cache w ramach budżetu. Używaj automatycznego przydziału z
-`gpu_memory_utilization=0.92` oraz formatu **FP8**:
+**Wagi** to wyuczone parametry modelu. Są potrzebne przy każdym przetwarzanym
+tokenie — fragmencie tekstu, na którym operuje model.
 
-```dotenv
-VLLM_KV_CACHE_DTYPE=fp8
-VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=
+Pracują tu dwa modele:
+
+- **Model główny: Gemma 4 26B-A4B NVFP4.** Przetwarza kontekst i wyznacza
+  odpowiedź. Format NVFP4 zapisuje wiele jego wag w zwartej, czterobitowej
+  reprezentacji, zmniejszając ich zapotrzebowanie na pamięć.
+- **Asystent MTP: Gemma 4 26B-A4B IT Assistant.** Proponuje kolejne tokeny
+  odpowiedzi do weryfikacji przez model główny. Używamy go z ustawieniem
+  `num_speculative_tokens=4`.
+
+Razem ich załadowanie zajmuje tutaj około **17,64 GiB pamięci GPU**.
+
+Po odjęciu tego od budżetu zostaje:
+
+```text
+29,30 GiB − 17,64 GiB = około 11,66 GiB
 ```
 
-Pusta lista `SKIP_LAYERS` oznacza stosowanie FP8 do wszystkich warstw uwagi.
-Nie ustawiaj dodatkowego limitu `--kv-cache-memory-bytes`.
+Ta pozostała część posłuży do wykonywania obliczeń i przechowywania kontekstów.
 
-Orientacyjny podział pamięci dla tej konfiguracji:
+**Wszystkie zapytania korzystają z tych samych wag.** Jeśli obsługujemy
+20 zapytań równocześnie, model jest załadowany raz. To przede wszystkim
+konteksty zapytań i dane robocze zwiększają zapotrzebowanie na pamięć.
 
-| Składnik | Pamięć |
+## 3. Same obliczenia też potrzebują miejsca
+
+Model podczas pracy tworzy wyniki pośrednie. Potrzebuje też buforów używanych
+przez operacje na GPU. Dochodzi do tego pamięć związana z **CUDA graphs**:
+zapisanymi sekwencjami operacji, które można ponownie uruchamiać z mniejszym
+narzutem sterowania.
+
+Dlatego vLLM przy starcie **profiluje zużycie pamięci**: ustala, ile miejsca
+potrzebuje działający model, i dopiero na tej podstawie dobiera pulę KV cache.
+Przy `gpu_memory_utilization=0.92` pozwalamy mu zrobić ten przydział automatycznie.
+
+Dla naszej konfiguracji orientacyjny podział budżetu wygląda tak:
+
+| Część budżetu vLLM | Pamięć |
 |---|---:|
-| Cały budżet vLLM | około 29,30 GiB |
-| Załadowany model wraz z MTP | około 17,64 GiB |
-| KV cache po starcie z zapisaną kompilacją | około 8,86 GiB |
-| Reszta budżetu na pozostałe alokacje, w tym pamięć roboczą i CUDA graphs | około 2,80 GiB |
+| Załadowane modele, łącznie z MTP | 17,64 GiB |
+| Pozostałe alokacje i rezerwy uwzględnione w przydziale | około 2,80 GiB |
+| KV cache | około 8,86 GiB |
+| **Razem** | **około 29,30 GiB** |
 
-Modele są współdzielone przez obsługiwane zapytania. Więcej równoczesnych
-sekwencji nie oznacza ładowania osobnej kopii modelu dla każdej z nich.
-Faktyczny przydział KV dla danego uruchomienia odczytaj z logów:
+To przybliżony rachunek dla startu z zapisaną kompilacją. Faktyczny przydział
+KV danego uruchomienia vLLM wypisuje w logach jako `Available KV cache memory`.
 
-```bash
-docker logs ik-llama 2>&1 | grep -E 'Model loading took|Available KV cache memory|GPU KV cache size'
-```
+Cache kompilacji znajduje się na dysku i pomaga szybciej uruchomić silnik.
+KV cache, któremu przyjrzymy się teraz, znajduje się w VRAM i służy do
+przetwarzania kontekstów zapytań.
 
-`Available KV cache memory` podaje rozmiar puli w GiB, a `GPU KV cache size`
-podaje szacowaną pojemność w tokenach.
+## 4. Co model zapamiętuje w KV cache?
 
-## 4. Ustaw limity obsługi zapytań
+Generowanie odpowiedzi składa się z dwóch głównych etapów:
 
-Pozostaw trzy domyślne limity:
+1. **Prefill:** model przetwarza tokeny promptu.
+2. **Decode:** model generuje dalsze tokeny odpowiedzi, korzystając z kontekstu.
 
-| Zmienna | Wartość | Znaczenie |
-|---|---:|---|
-| `VLLM_MAX_MODEL_LEN` | `32768` | Maksymalny łączny kontekst jednej sekwencji: wejście i generowana odpowiedź. |
-| `VLLM_MAX_NUM_SEQS` | `80` | Górny limit sekwencji obsługiwanych równocześnie. |
-| `VLLM_MAX_NUM_BATCHED_TOKENS` | `8192` | Budżet tokenów przetwarzanych w jednej iteracji schedulera. |
+W mechanizmie uwagi (*attention*) model oblicza dla tokenów m.in.
+reprezentacje nazywane **keys** i **values**, czyli K i V. Następne tokeny
+korzystają z tych reprezentacji, aby uwzględnić wcześniejszy kontekst.
+**KV cache przechowuje je do ponownego użycia.**
 
-Scheduler rozdziela pracę pomiędzy zapytania zgodnie z tymi limitami i dostępnym
-KV cache. Limit 80 sekwencji nie oznacza rezerwacji 80 pełnych kontekstów po
-32 768 tokenów. Przy długich kontekstach część zapytań może czekać w kolejce.
+Wyobraź sobie prompt długości 10 000 tokenów. Po jego przetworzeniu model
+zaczyna odpowiedź. Przy generowaniu kolejnych tokenów korzysta z zapisanych
+K i V promptu, zamiast za każdym razem odtwarzać je od początku. W miarę
+generowania cache uwzględnia także tokeny odpowiedzi.
 
-Wspólne początki promptów mogą korzystać ze współdzielonych bloków KV dzięki
-włączonemu prefix caching. Chunked prefill dzieli przetwarzanie długiego promptu
-na części mieszczące się w budżecie iteracji.
+Z tego wynikają dwa praktyczne związki:
 
-## 5. Używaj MRV2, Tritona i MTP ×4
+- dłuższe konteksty potrzebują więcej miejsca na zapamiętany stan;
+- więcej równoczesnych zapytań oznacza więcej kontekstów do utrzymania.
 
-Konfiguracja rozdziela dwa rodzaje obliczeń:
+Dokładny koszt zależy także od architektury modelu. Nasza Gemma łączy warstwy
+pełnej uwagi z warstwami uwagi lokalnej, korzystającymi z ograniczonego okna
+kontekstu. Dlatego rozmiaru całej puli nie przeliczamy prostym założeniem,
+że każda warstwa zawsze przechowuje całą historię każdego zapytania.
 
-| Rodzaj obliczeń | Ustawienie |
-|---|---|
-| Uwaga — korzystanie z kontekstu i KV cache | `VLLM_ATTENTION_BACKEND=TRITON_ATTN` |
-| MoE — obliczenia ekspertów modelu NVFP4 | `VLLM_MOE_BACKEND=flashinfer_cutlass` |
+## 5. Dlaczego ustawiamy KV cache na FP8?
 
-[Compose](../docker-compose.yml) włącza **Model Runner V2** przez
-`VLLM_USE_V2_MODEL_RUNNER=1`. Runner zarządza wykonywaniem modelu na GPU.
+**FP8** to ośmiobitowy format liczb. Ustawienie `kv_cache_dtype=fp8`
+pozwala zapisywać K i V w bardziej zwartej postaci. Dzięki temu w danej
+puli pamięci mieści się więcej stanu niż przy zapisie szesnastobitowym.
 
-[Entrypoint](../deploy/vllm/entrypoint.sh) ustawia **MTP z czterema tokenami**:
-asystent proponuje tokeny, a model główny je weryfikuje. Ten sam skrypt włącza
-prefix caching, chunked prefill, asynchroniczny scheduler oraz **xgrammar**
-do generowania odpowiedzi zgodnych ze schematem JSON. Te ustawienia są już
-częścią polecenia startowego.
+Format KV cache jest osobnym wyborem od formatu wag modelu. W naszej
+konfiguracji **NVFP4 dotyczy wag**, a **FP8 dotyczy KV cache**. Nie są to
+dwie nazwy tego samego ustawienia.
 
-Host używa trwałego limitu mocy **450 W**, ustawianego przez usługę
-`nvidia-power-limit.service` opisaną w instrukcji instalacji.
+Zostawiamy FP8 dla wszystkich warstw uwagi. Lista warstw pomijanych przy
+tej kwantyzacji pozostaje pusta.
 
-## 6. Uruchom i sprawdź usługę
+## 6. Jak ta pamięć przekłada się na liczbę zapytań?
 
-Z katalogu repozytorium na serwerze wykonaj:
+vLLM zarządza KV cache w blokach. Przydziela je kontekstom według potrzeb,
+zamiast od razu rezerwować pełny maksymalny kontekst dla każdego zapytania.
 
-```bash
-docker compose up -d --build --no-deps ik-llama
-docker compose ps
-```
+Warto rozróżnić dwa limity:
 
-Poczekaj, aż `ik-llama` osiągnie stan `healthy`. Podczas pierwszego startu
-vLLM przygotowuje kompilację i grafy CUDA; zapisany cache przyspiesza kolejne
-uruchomienia.
+**`max_model_len=32768`** określa maksymalną długość jednej sekwencji.
+W tym limicie muszą zmieścić się wejście i generowana odpowiedź. Na przykład
+prompt o długości 12 000 tokenów z odpowiedzią do 2000 tokenów potrzebuje
+łącznie do 14 000 tokenów kontekstu.
 
-Uruchom weryfikator:
+**`max_num_seqs=80`** określa górny limit sekwencji obsługiwanych równocześnie.
+Scheduler — część vLLM rozdzielająca pracę — bierze pod uwagę również dostępną
+pamięć. Krótkich kontekstów może zmieścić się więcej niż długich.
 
-```bash
-./deploy/server/verify.sh
-```
+Dlatego tych wartości nie mnożymy jako obietnicy pojemności. `80 × 32768`
+nie oznacza, że tyle tokenów kontekstu zostało z góry zarezerwowanych na GPU.
+Zapytania, dla których nie ma jeszcze miejsca lub budżetu pracy, czekają
+w kolejce.
 
-Sprawdza on wersję vLLM i konfigurację działającego kontenera, limit 450 W,
-stan usług, autoryzację API, odpowiedź JSON, scraper i publiczny tunel.
-Poprawne zakończenie wypisuje:
+## 7. Co oznacza batch 8192 i jak vLLM łączy pracę?
 
-```text
-All deployment checks passed.
-```
+**`max_num_batched_tokens=8192`** to budżet tokenów przetwarzanych w jednej
+iteracji schedulera. Określa wielkość porcji pracy trafiającej do modelu.
 
-Bieżące zużycie pamięci i limit mocy możesz podejrzeć poleceniem:
+Prompt może być dłuższy niż 8192 tokeny. Dzięki **chunked prefill** vLLM
+dzieli jego przetwarzanie na części. W kolejnych iteracjach może łączyć pracę
+nad promptami z generowaniem odpowiedzi na inne zapytania.
 
-```bash
-nvidia-smi --query-gpu=memory.total,memory.used,memory.free,power.limit --format=csv
-```
+Zapytania nie muszą zaczynać się i kończyć razem. Kiedy jedno się kończy,
+scheduler może dopuścić następne. To **continuous batching**: skład grupy
+obsługiwanych zapytań zmienia się w trakcie pracy.
 
-Gotowa konfiguracja to **vLLM 0.29 / MRV2 / Triton / CUTLASS**, **FP8 KV**,
-**utilization 0.92**, **batch 8192**, **MTP ×4** i **450 W**.
+U nas pozostawiamy budżet **8192 tokenów**. Włączony asynchroniczny scheduler
+pozwala przygotowywać kolejne zadania z nakładaniem części pracy CPU i GPU,
+żeby ograniczać przerwy pomiędzy obliczeniami.
+
+### A jeśli zapytania mają wspólny początek?
+
+Załóżmy, że wysyłasz wiele zapytań z tą samą długą instrukcją, a dopiero po
+niej umieszczasz inne dane. **Prefix caching** pozwala wykorzystać zapisany
+stan zgodnych bloków początku promptu w kolejnych zapytaniach.
+
+Wspólne bloki mogą być współdzielone, a ich obliczeń nie trzeba za każdym
+razem wykonywać od nowa. Warunkiem jest zgodny początek sekwencji tokenów
+oraz dostępność tych bloków w cache. Podobne znaczenie instrukcji nie wystarcza:
+zmiana początku promptu zmienia także możliwość jego ponownego wykorzystania.
+
+Dlatego stałe instrukcje warto umieszczać przed zmiennymi danymi. W naszym
+wdrożeniu prefix caching jest włączony.
+
+## 8. Kto wykonuje te obliczenia na GPU?
+
+Podział pracy ustala scheduler, natomiast **Model Runner V2**, w skrócie
+**MRV2**, przygotowuje i wykonuje przebiegi modelu na GPU. Korzysta przy tym
+z konkretnych implementacji operacji, nazywanych backendami.
+
+**Triton attention (`TRITON_ATTN`)** wykonuje obliczenia uwagi, czyli korzystanie
+z informacji zawartych w kontekście i KV cache.
+
+**FlashInfer CUTLASS (`flashinfer_cutlass`)** obsługuje operacje MoE dla naszych
+wag NVFP4. MoE to model z wieloma zestawami parametrów zwanymi ekspertami;
+dla danego tokenu wybierana jest część z nich.
+
+Te backendy wykonują różne części pracy i działają razem. Wybieramy więc
+**MRV2 + Triton attention + FlashInfer CUTLASS MoE**.
+
+## 9. Jak MTP przyspiesza generowanie odpowiedzi?
+
+Zwykłe generowanie dopisuje kolejne tokeny na podstawie dotychczasowego
+kontekstu. **MTP** wykorzystuje asystenta, który proponuje kilka następnych
+tokenów, a model główny weryfikuje propozycję.
+
+Ustawiamy **cztery tokeny spekulacyjne**. Jeśli propozycje zostaną zaakceptowane,
+jedna weryfikacja pozwala posunąć odpowiedź o kilka tokenów do przodu.
+Odrzucone propozycje są korygowane zgodnie z wynikiem modelu głównego.
+
+Liczba cztery określa długość propozycji. Nie oznacza gwarantowanego
+czterokrotnego przyspieszenia: propozycje też trzeba obliczyć, a nie każda
+zostanie przyjęta w całości. Asystent zajmuje część pamięci GPU — jego koszt
+jest już uwzględniony w opisanym wcześniej ładowaniu modeli.
+
+## 10. Złóżmy to w przebieg jednego zapytania
+
+Wysyłasz 12 000 tokenów wejścia i przewidujesz odpowiedź do 2000 tokenów.
+
+1. **Limit kontekstu:** do 14 000 tokenów mieści się w `max_model_len=32768`.
+2. **Przyjęcie do pracy:** scheduler uwzględnia limit 80 sekwencji i dostępne
+   bloki KV cache. W razie potrzeby zapytanie czeka na swoją kolej.
+3. **Prefill:** wspólny początek może skorzystać z prefix cache. Pozostałe
+   tokeny są przetwarzane w porcjach mieszczących się w budżecie iteracji 8192.
+4. **Decode:** model korzysta z KV cache w formacie FP8. Asystent MTP proponuje
+   po cztery tokeny, które weryfikuje model główny.
+5. **Zakończenie:** zapytanie oddaje zajęte miejsce w grupie aktywnych sekwencji.
+   Bloki KV mogą zostać ponownie wykorzystane; zachowane prefiksy mogą przydać
+   się następnym zapytaniom.
+
+Cały ten proces odbywa się w budżecie wynikającym z **`gpu_memory_utilization=0.92`**.
+Osobno host utrzymuje limit mocy **450 W** — ten parametr dotyczy poboru
+energii GPU, a nie podziału VRAM.
+
+W ten sposób ustawienia tworzą jedną całość: budżet pamięci mieści model
+i konteksty, scheduler dzieli pracę, backendy wykonują obliczenia, a MTP
+pozwala sprawniej dopisywać odpowiedź.

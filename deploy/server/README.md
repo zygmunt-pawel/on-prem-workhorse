@@ -270,7 +270,7 @@ mapping is:
 
 Keep the production defaults already present in `.env.example`, especially
 `VLLM_GPU_MEMORY_UTILIZATION=0.92` (changed from `0.90` at the operator's
-request on 15 September 2026; see the [configuration guide](../../docs/vllm-pamiec-krok-po-kroku.md)).
+request on 15 September 2026; see the [memory tutorial](../../docs/vllm-pamiec-krok-po-kroku.md)).
 The previous `0.94` setting left too little
 transient MoE workspace and could terminate the engine. Likewise, 450 W is the
 measured production power cap; 600 W did not improve throughput.

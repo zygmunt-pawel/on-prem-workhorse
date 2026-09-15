@@ -96,7 +96,7 @@ Notes:
   further 724 MiB even at low KV occupancy; the previous setting could leave only
   495–575 MiB physically free and terminate EngineCore.
   The previous 90% setting was raised to 92% at the operator's request on
-  15 September 2026 to increase KV capacity. Configuration instructions are in
+  15 September 2026 to increase KV capacity. The memory budget and request processing are explained in
   [the memory walkthrough](docs/vllm-pamiec-krok-po-kroku.md).
 - **Thinking model.** vLLM 0.29 chat responses expose `reasoning` separately
   from `content` (0.25 used `reasoning_content`). Give a generous `max_tokens` — with a small budget the whole
