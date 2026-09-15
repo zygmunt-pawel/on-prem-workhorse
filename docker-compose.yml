@@ -26,12 +26,12 @@ services:
   # independent hard limit for long contexts.
   # NOTE: historical service name retained so existing compose commands keep working.
   ik-llama:
-    image: on-prem-workhorse-vllm:v0.25.0-gemma4-mtp
+    image: on-prem-workhorse-vllm:v0.29.0-gemma4-mtp
     build:
       context: ./deploy/vllm
       dockerfile: Dockerfile
       args:
-        VLLM_IMAGE: vllm/vllm-openai:v0.25.0
+        VLLM_IMAGE: vllm/vllm-openai:v0.29.0@sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1
     container_name: ik-llama
     restart: unless-stopped
     runtime: nvidia
@@ -39,6 +39,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - VLLM_NO_USAGE_STATS=1
+      - VLLM_USE_V2_MODEL_RUNNER=1
       - DO_NOT_TRACK=1
       # FlashInfer's fused-MoE workspace is allocated dynamically. Expandable
       # segments let PyTorch reuse fragmented reserved memory under mixed waves.
@@ -51,13 +52,14 @@ services:
       - ON_PREM_VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-32768}
       - ON_PREM_VLLM_MAX_NUM_SEQS=${VLLM_MAX_NUM_SEQS:-80}
       - ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS=${VLLM_MAX_NUM_BATCHED_TOKENS:-8192}
-      - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+      - ON_PREM_VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.92}
       - ON_PREM_VLLM_KV_CACHE_DTYPE=${VLLM_KV_CACHE_DTYPE:-fp8}
       - ON_PREM_VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=${VLLM_KV_CACHE_DTYPE_SKIP_LAYERS:-}
-      - ON_PREM_VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND:-auto}
+      - ON_PREM_VLLM_ATTENTION_BACKEND=${VLLM_ATTENTION_BACKEND:-TRITON_ATTN}
+      - ON_PREM_VLLM_MOE_BACKEND=${VLLM_MOE_BACKEND:-flashinfer_cutlass}
     volumes:
       - ${MODEL_DIR}/hf:/models:ro
-      - ${VLLM_CACHE_DIR:-/home/pawel/.cache/vllm-gemma4-bench}:/root/.cache
+      - ${VLLM_CACHE_DIR:-/home/server/.cache/vllm-gemma4-v029}:/root/.cache
     ports:
       - "8090:8000"
     healthcheck:

@@ -16,14 +16,14 @@ The scraper is not exposed by this tunnel.
 The tunnel credential is deliberately stored outside the repository:
 
 ```text
-/home/pawel/.cloudflared/ca500d27-9a93-440c-9023-e1729c249e1e.json
+/home/server/.cloudflared/ca500d27-9a93-440c-9023-e1729c249e1e.json
 ```
 
 It must be owned by UID/GID `1000:1000` and readable only by its owner:
 
 ```bash
-chmod 700 /home/pawel/.cloudflared
-chmod 400 /home/pawel/.cloudflared/ca500d27-9a93-440c-9023-e1729c249e1e.json
+chmod 700 /home/server/.cloudflared
+chmod 400 /home/server/.cloudflared/ca500d27-9a93-440c-9023-e1729c249e1e.json
 ```
 
 The account-wide `cert.pem` is not needed on the server and must not be copied
@@ -31,7 +31,7 @@ there. The tunnel-specific JSON can only run this tunnel.
 
 ## Operations
 
-Run these commands from the repository root on `local-classifier`:
+Run these commands from the repository root on host `server`:
 
 ```bash
 docker compose -f deploy/cloudflared/docker-compose.yml up -d

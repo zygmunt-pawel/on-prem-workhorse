@@ -14,6 +14,12 @@ set -a
 source .env
 set +a
 
+# Share the GPU lock with version comparisons; keep it held through restoration.
+exec 9>/tmp/on-prem-vllm-version-benchmark.lock
+flock -n 9 || { echo "Another GPU benchmark is running." >&2; exit 1; }
+
+production_gpu_memory_utilization="${VLLM_GPU_MEMORY_UTILIZATION:-0.92}"
+
 result_root="${1:-benchmark-results/reddit-matching-$(date -u +%Y%m%dT%H%M%SZ)}"
 mkdir -p "${result_root}"
 
@@ -25,7 +31,9 @@ benchmark_repetitions="${BENCHMARK_REPETITIONS:-3}"
 benchmark_variants="${BENCHMARK_VARIANTS:-}"
 
 restore_baseline() {
-  export VLLM_GPU_MEMORY_UTILIZATION=0.94
+  # Restore the revised production safety envelope, not the earlier isolated
+  # benchmark baseline that reproduced mixed-workload fused-MoE OOMs.
+  export VLLM_GPU_MEMORY_UTILIZATION="${production_gpu_memory_utilization}"
   export VLLM_MAX_NUM_BATCHED_TOKENS=8192
   export VLLM_KV_CACHE_DTYPE_SKIP_LAYERS=
   docker compose up -d --force-recreate --no-deps ik-llama >/dev/null 2>&1 || true
@@ -102,6 +110,8 @@ run_variant() {
     return 0
   fi
 
+  docker inspect --format '{{json .Image}}' ik-llama >"${variant_dir}/image-id.json"
+  docker exec ik-llama python3 -c 'import vllm; print(vllm.__version__)' >"${variant_dir}/vllm-version.txt"
   record_safe_startup >"${variant_dir}/startup.log" || true
   if python3 benchmarks/reddit-matching/benchmark.py \
     --variant "${name}" \
@@ -128,6 +138,7 @@ run_selected_variant() {
 
 docker compose build ik-llama
 
+run_selected_variant fp8-g92-b8192 8192 0.92 ""
 run_selected_variant fp8-g94-b4096 4096 0.94 ""
 run_selected_variant fp8-g94-b6144 6144 0.94 ""
 run_selected_variant fp8-g94-b8192 8192 0.94 ""

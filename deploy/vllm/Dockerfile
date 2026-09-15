@@ -1,17 +1,7 @@
-ARG VLLM_IMAGE=vllm/vllm-openai:v0.25.0
+ARG VLLM_IMAGE=vllm/vllm-openai:v0.29.0@sha256:c2914767605584b6d8f45686b82de173ecc99e781897aa3d0a66dacd72c51ae1
 FROM ${VLLM_IMAGE}
 
-# vLLM 0.25.0 rejects the official Gemma 4 assistant's intentionally
-# draft-width tied embedding before Gemma4MTP can replace its input embedding
-# with the target-width tensor. Keep the fix local and auditable until it is
-# available upstream.
-COPY llm_base_proposer.patch /tmp/llm_base_proposer.patch
-RUN cd /usr/local/lib/python3.12/dist-packages/vllm/v1/spec_decode \
-    && patch --batch --forward llm_base_proposer.py \
-       < /tmp/llm_base_proposer.patch \
-    && python3 -m py_compile llm_base_proposer.py \
-    && rm /tmp/llm_base_proposer.patch
-
+# vLLM 0.29 includes the Gemma 4 assistant compatibility fix upstream.
 COPY entrypoint.sh /usr/local/bin/on-prem-vllm
 RUN chmod 0755 /usr/local/bin/on-prem-vllm
 

@@ -1,0 +1,47 @@
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  timezone: Europe/Warsaw
+
+  source:
+    id: ubuntu-server
+    search_drivers: false
+
+  # Ethernet uses DHCP during installation and in the installed system.
+
+  # Destructive by design. Subiquity's size selector excludes the installation
+  # media, so the USB stick is never selected as the target disk.
+  storage:
+    layout:
+      name: direct
+      match:
+        size: largest
+
+  identity:
+    realname: Server
+    hostname: server
+    username: server
+    # Generated for every image and deliberately discarded. Password SSH is
+    # disabled; administrative access is via the embedded public key.
+    password: "__PASSWORD_HASH__"
+
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+      - "__SSH_PUBLIC_KEY__"
+
+  drivers:
+    install: false
+
+  updates: all
+
+  late-commands:
+    - mkdir -p /target/etc/sudoers.d
+    - echo 'server ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/90-server
+    - chmod 0440 /target/etc/sudoers.d/90-server
+
+  # Avoid an install loop if firmware continues to prefer USB boot.
+  shutdown: poweroff

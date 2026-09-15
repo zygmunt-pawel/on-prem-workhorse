@@ -17,9 +17,10 @@ args=(
   --max-model-len "${ON_PREM_VLLM_MAX_MODEL_LEN:-32768}"
   --max-num-seqs "${ON_PREM_VLLM_MAX_NUM_SEQS:-80}"
   --max-num-batched-tokens "${ON_PREM_VLLM_MAX_NUM_BATCHED_TOKENS:-8192}"
-  --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.90}"
+  --gpu-memory-utilization "${ON_PREM_VLLM_GPU_MEMORY_UTILIZATION:-0.92}"
   --kv-cache-dtype "${ON_PREM_VLLM_KV_CACHE_DTYPE:-fp8}"
-  --moe-backend "${ON_PREM_VLLM_MOE_BACKEND:-auto}"
+  --moe-backend "${ON_PREM_VLLM_MOE_BACKEND:-flashinfer_cutlass}"
+  --attention-backend "${ON_PREM_VLLM_ATTENTION_BACKEND:-TRITON_ATTN}"
   --enable-prefix-caching
   --enable-chunked-prefill
   --async-scheduling

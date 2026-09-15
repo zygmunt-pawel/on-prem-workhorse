@@ -1,5 +1,36 @@
 # Reddit matching vLLM benchmark
 
+**Production, 2026-09-15:** vLLM **0.29.0 / MRV2**, Triton attention,
+FlashInfer CUTLASS MoE, FP8 KV, utilization **0.92**, batch **8192**, MTP×4,
+450 W. Results later in this document are the historical 0.25 scheduler and
+power experiments, with their original settings; they are not new 0.29 runs.
+The matrix cleanup restores utilization read from `.env` at startup.
+
+Current evidence and decisions:
+
+- [Version, runner, memory and backend comparison](../../docs/vllm-029-benchmark.md).
+- [Full-cache pressure comparison](../../docs/vllm-kv-pressure-benchmark.md):
+  shared-prefix long-output batches finished 8.8% sooner on 0.29; short outputs
+  were roughly tied or 2.6% faster, depending on prefix sharing.
+- [Memory walkthrough](../../docs/vllm-pamiec-krok-po-kroku.md): historical
+  explanation of the 0.90 → 0.92 change; compare physical GiB at matching
+  compilation state, not the differently calculated token estimates.
+- [Live inventory and post-migration checks](../../deploy/server/VERIFIED_STATE.md).
+
+`compare-versions.py` stops production, tests isolated containers and restarts
+the original container in `finally`. Explicit `v025` selects the retained
+0.25 image; `v029` selects upstream 0.29. `baseline` always means the current
+production image, now 0.29. Default variants are `v025 v029`; b12x is opt-in.
+The scheduler matrix also includes the current `fp8-g92-b8192` control and
+records the actual image ID/version for each variant.
+`cache-pressure.py` now opens one HTTP connection pool per wave and never
+retries failed requests. Set the same `--run-id` for paired direct runs when
+reusing a live server; different campaigns should use different IDs. Historical
+comparisons used the original pool shared across waves, as recorded in the
+reports. The initial post-migration disconnect and subsequent check are retained.
+The 0.25 image must already exist locally; a fresh 0.29 installation does not
+build it. Every run records resolved image IDs and uses separate compile caches.
+
 Controlled scheduler benchmark for the two physical request shapes used by the
 LeadsRun Reddit matching pipeline. It is designed to answer configuration questions
 for this exact service rather than extrapolate from a generic one-prompt benchmark.
@@ -99,10 +130,12 @@ showed 1.01–1.09 GiB reserved but unallocated in the PyTorch allocator.
 The production safety envelope is therefore revised to full FP8 KV,
 `gpu_memory_utilization=0.90`, `max_num_batched_tokens=8192`, `max_num_seqs=80`, MTP×4,
 and `PYTORCH_ALLOC_CONF=expandable_segments:True`. The resulting dynamic KV pool contains
-247,029 tokens. The LeadsRun admission gate keeps 64 sequence slots but lowers its
-estimated-token budget to 220k, leaving 27,029 tokens of hard KV headroom. This
-preserves the measured scheduler optimum while leaving physical workspace and KV
-headroom. Lowering the scheduler batch to 6144 or 4096 remains a fallback only if the
+226,341 tokens on the clean 29 August 2026 deployment, where vLLM's startup profiler
+accounts for CUDA graph memory inside the 0.90 envelope. The exact pool can vary slightly
+with the driver/compiler build. The LeadsRun admission gate keeps 64 sequence slots and
+a 220k estimated-token budget, leaving 6,341 tokens of hard KV headroom on this host.
+This preserves the measured scheduler optimum while leaving physical fused-MoE
+workspace. Lowering the scheduler batch to 6144 or 4096 remains a fallback only if the
 revised envelope still reproduces an OOM under the same mixed workload.
 
 ## Why FP8 is the baseline

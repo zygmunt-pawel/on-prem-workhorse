@@ -1,0 +1,13 @@
+[Unit]
+Description=Set the RTX 5090 production power limit
+After=nvidia-persistenced.service
+Wants=nvidia-persistenced.service
+ConditionPathExists=/usr/bin/nvidia-smi
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/nvidia-smi --id=0 --power-limit=450
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
