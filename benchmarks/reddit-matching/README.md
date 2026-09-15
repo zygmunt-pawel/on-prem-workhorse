@@ -12,9 +12,8 @@ Current evidence and decisions:
 - [Full-cache pressure comparison](../../docs/vllm-kv-pressure-benchmark.md):
   shared-prefix long-output batches finished 8.8% sooner on 0.29; short outputs
   were roughly tied or 2.6% faster, depending on prefix sharing.
-- [Memory walkthrough](../../docs/vllm-pamiec-krok-po-kroku.md): historical
-  explanation of the 0.90 → 0.92 change; compare physical GiB at matching
-  compilation state, not the differently calculated token estimates.
+- [Memory and configuration guide](../../docs/vllm-pamiec-krok-po-kroku.md):
+  production defaults and steps to configure, start and verify the service.
 - [Live inventory and post-migration checks](../../deploy/server/VERIFIED_STATE.md).
 
 `compare-versions.py` stops production, tests isolated containers and restarts
