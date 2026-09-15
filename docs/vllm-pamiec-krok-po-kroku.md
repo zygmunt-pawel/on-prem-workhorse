@@ -13,6 +13,23 @@ wpływa i jaką wartość przyjmujemy w naszym wdrożeniu.
 GPU ma własną pamięć, czyli **VRAM**. To w niej podczas generowania znajdują
 się wagi modelu i dane używane przez jego obliczenia.
 
+Żeby sprawdzić pojemność i bieżące wykorzystanie pamięci karty, uruchom
+na komputerze z GPU:
+
+```bash
+nvidia-smi --query-gpu=name,memory.total,memory.used,memory.free --format=csv
+```
+
+Wynik zawiera:
+
+- `name` — nazwę karty;
+- `memory.total` — całkowitą pojemność pamięci GPU;
+- `memory.used` — aktualnie zajętą pamięć;
+- `memory.free` — aktualnie wolną pamięć.
+
+**Do obliczenia budżetu vLLM bierzemy `memory.total`.** Ilość wolnej pamięci
+zmienia się podczas pracy, więc nie jest podstawą tego rachunku.
+
 Nasz RTX 5090 raportuje **32 607 MiB**, czyli około **31,84 GiB**. To punkt
 wyjścia do rachunku. MiB i GiB są jednostkami pamięci; 1024 MiB to 1 GiB.
 
