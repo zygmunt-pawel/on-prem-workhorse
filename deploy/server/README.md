@@ -164,7 +164,7 @@ rsync -az \
   --exclude='node_modules/' \
   --exclude='dist/' \
   --exclude='benchmark-results/' \
-  /Users/pawel/workspace/on-prem-workhorse/ \
+  /Users/pawel/workspace/leads_run_mono/on-prem-workhorse/ \
   server@server:/home/server/on-prem-workhorse/
 ```
 
@@ -199,6 +199,20 @@ It does not uninstall a pre-existing conflicting Docker/container runtime; it
 stops and names the packages so they can be reviewed first. The NVIDIA driver
 branch and toolkit version are fixed, while Ubuntu and Docker receive current
 compatible stable updates.
+
+### Docker only (hosts without an NVIDIA GPU)
+
+For a machine installed from the same USB that only needs Docker Engine and
+Compose, use the standalone script instead. It needs no repository files on the
+host, so it can be streamed from the Mac:
+
+```bash
+ssh server@HOST 'bash -s' < deploy/server/install-docker.sh
+```
+
+It installs `docker-ce`, `buildx` and the Compose plugin from Docker's official
+Ubuntu repository, enables Docker at boot, adds the current user to the `docker`
+group and is safe to rerun. Reconnect before running `docker` without `sudo`.
 
 Reboot when the script says it is required, then reconnect so membership in
 the `docker` group is active:
