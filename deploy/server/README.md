@@ -161,8 +161,6 @@ ssh server@server 'mkdir -p /home/server/on-prem-workhorse'
 rsync -az \
   --exclude='.git/' \
   --exclude='.env' \
-  --exclude='node_modules/' \
-  --exclude='dist/' \
   --exclude='benchmark-results/' \
   /Users/pawel/workspace/leads_run_mono/on-prem-workhorse/ \
   server@server:/home/server/on-prem-workhorse/
@@ -274,13 +272,12 @@ chmod 600 .env
 $EDITOR .env
 ```
 
-Fill the two nonempty service keys. For the current LeadsRun integration the
+Fill the nonempty service key. For the current LeadsRun integration the
 mapping is:
 
 | on-prem variable | corresponding LeadsRun backend variable |
 |---|---|
 | `API_KEY` | `AI_PIPELINE_CHAT_API_KEY` |
-| `SCRAPER_API_KEY` | `ELIGIBILITY_SCRAPER_API_KEY` |
 
 Keep the production defaults already present in `.env.example`, especially
 `VLLM_GPU_MEMORY_UTILIZATION=0.92` (changed from `0.90` at the operator's
@@ -333,11 +330,9 @@ installer starts Cloudflare only when the expected credential file exists.
 Expected endpoints after verification:
 
 - private LLM: `http://192.168.1.15:8090`;
-- private scraper: `http://192.168.1.15:3000`;
 - public LLM: `https://model.leads.run`;
-- unauthenticated `/health` on each service;
-- authenticated LLM `/v1/*` with `Authorization: Bearer ...`;
-- authenticated scraper endpoints with `x-api-key: ...`.
+- unauthenticated `/health`;
+- authenticated LLM `/v1/*` with `Authorization: Bearer ...`.
 
 Set `VERIFY_PUBLIC_TUNNEL=no` when deliberately deploying without the tunnel:
 
@@ -345,10 +340,7 @@ Set `VERIFY_PUBLIC_TUNNEL=no` when deliberately deploying without the tunnel:
 VERIFY_PUBLIC_TUNNEL=no ./deploy/server/verify.sh
 ```
 
-For an intentionally offline host, the real `example.com` Playwright smoke
-test can also be skipped with `VERIFY_SCRAPER_FETCH=no`.
-
-All three containers use `restart: unless-stopped`, Docker starts at boot, the
+Both containers (`ik-llama`, `cloudflared`) use `restart: unless-stopped`, Docker starts at boot, the
 450 W limit is reapplied by systemd, and model/cache files remain on the NVMe.
 
 ## Recovery and diagnostics

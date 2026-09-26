@@ -1,26 +1,4 @@
 services:
-  scraper:
-    build: .
-    image: on-prem-workhorse:latest
-    container_name: scraper
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - API_KEY=${SCRAPER_API_KEY}
-      - PROXY_URL=${PROXY_URL:-}
-      # libuv default is 4 — too tight for spawning chromium under concurrency.
-      # If a launch wedges a pool thread (DNS/fs/pipe setup in playwright-ghost),
-      # every subsequent /scrape-site queues forever. Larger pool absorbs hangs.
-      - UV_THREADPOOL_SIZE=16
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)})"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-
   # Gemma 4 26B-A4B with NVIDIA NVFP4 weights. MTP is disabled by default after
   # the 2026-09-15 high-concurrency JSON benchmark; it remains opt-in for A/Bs.
   # The server admits up to 64 short/medium sequences; the FP8 KV pool is the

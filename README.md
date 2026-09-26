@@ -2,11 +2,9 @@
 
 Self-hosted inference stack with LAN-only origins. The RTX 5090 LLM is also
 published at `https://model.leads.run` through an outbound-only Cloudflare
-Tunnel; the scraper remains private to the LAN. The stack provides two
-application services:
+Tunnel. The stack provides one application service:
 
 - **LLM** — Gemma 4 26B-A4B chat completions (OpenAI-compatible API)
-- **Scraper** — website → LLM-ready Markdown microservice
 
 Application configuration and API keys live in a local `.env` file on the
 host. The tunnel-specific credential is stored separately under
@@ -14,7 +12,7 @@ host. The tunnel-specific credential is stored separately under
 
 ## Architecture
 
-One RTX 5090 GPU box runs the stack. Only the LLM has a public ingress:
+One RTX 5090 GPU box runs the stack:
 
 ```
    Internet clients
@@ -28,11 +26,10 @@ One RTX 5090 GPU box runs the stack. Only the LLM has a public ingress:
    ┌────────────────────────────────────────────────────────────┐
    │  cloudflared          named tunnel → 127.0.0.1:8090        │
    │  ik-llama     :8090   Gemma 4 26B-A4B NVFP4 (MTP off, ~30 GB VRAM)│
-   │  scraper      :3000   Playwright + HTML→Markdown            │
    └────────────────────────────────────────────────────────────┘
 ```
 
-The application containers are defined in `docker-compose.yml`. The named
+The LLM container is defined in `docker-compose.yml`. The named
 tunnel runs from `deploy/cloudflared/docker-compose.yml`; it makes outbound
 connections to Cloudflare and requires no inbound router or firewall rule.
 Direct host ports remain available on the LAN.
@@ -42,11 +39,9 @@ Direct host ports remain available on the LAN.
 | Service | Container | Host port | Public route | Auth header |
 |---|---|---|---|---|
 | LLM | `ik-llama` | 8090 | `https://model.leads.run/v1/*` | `Authorization: Bearer <API_KEY>` |
-| Scraper | `scraper` | 3000 | none | `x-api-key: <SCRAPER_API_KEY>` |
 
-`/health` is open on every service (no key) — used by the Docker healthchecks.
-All other endpoints require the key. The LLM uses `API_KEY`; the scraper has
-its own (`SCRAPER_API_KEY`). The public tunnel allows only `/health` and
+`/health` is open (no key) — used by the Docker healthcheck. All other
+endpoints require `API_KEY`. The public tunnel allows only `/health` and
 `/v1/*`; every other public path returns `404`.
 
 ### LLM (5090) — `192.168.1.15:8090`
@@ -125,29 +120,6 @@ Notes:
 > Docker enabled on boot and the model files persisted on disk. After a reboot,
 > the stack returns and reloads the model from disk without a manual step.
 
-### Scraper — `:3000`
-
-Node.js/TypeScript/Fastify microservice. Scrapes websites with a stealth
-Playwright browser and converts the HTML to LLM-ready Markdown. Authenticated
-with the `x-api-key` header (not `Bearer`).
-
-```bash
-# Single page
-curl -X POST http://192.168.1.15:3000/scrape \
-  -H "x-api-key: <SCRAPER_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com"}'
-
-# Multi-page site crawl
-curl -X POST http://192.168.1.15:3000/scrape-site \
-  -H "x-api-key: <SCRAPER_API_KEY>" \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com","maxPages":6}'
-```
-
-Endpoints: `/scrape`, `/scrape-site`, `/health`. See `AGENTS.md` for the
-scraper's request/response schema, error codes, and internals.
-
 ## Deployment
 
 ### First-time setup on a new machine
@@ -223,8 +195,6 @@ Copy `.env.example` to `.env` and fill in:
 | Variable | Purpose |
 |---|---|
 | `API_KEY` | Key for the LLM service (`Bearer` auth) |
-| `SCRAPER_API_KEY` | Key for the scraper service (`x-api-key` auth) |
-| `PROXY_URL` | Optional HTTP/HTTPS proxy for the scraper's Playwright browser |
 | `MODEL_DIR` | Host root containing the two snapshots below `MODEL_DIR/hf` |
 | `VLLM_CACHE_DIR` | Persistent vLLM compile/CUDA graph cache directory |
 | `VLLM_MAX_MODEL_LEN` | Maximum context per 5090 sequence; production `32768` |
@@ -236,8 +206,7 @@ Copy `.env.example` to `.env` and fill in:
 | `VLLM_MOE_BACKEND` | MoE implementation; production `flashinfer_cutlass` |
 | `VLLM_MTP_NUM_SPECULATIVE_TOKENS` | MTP draft depth; production `0` (disabled) |
 
-If `SCRAPER_API_KEY` is empty, the scraper registers **no** auth hook and every
-endpoint becomes open — keep it set. Same applies to `API_KEY` for the LLM.
+Keep `API_KEY` set; it is what protects the LLM's `/v1/*` endpoints.
 
 Rotating a key: edit `.env`, then `docker compose up -d --force-recreate`.
 
@@ -245,8 +214,7 @@ Rotating a key: edit `.env`, then `docker compose up -d --force-recreate`.
 
 ```bash
 docker compose ps                 # status of all containers
-docker compose logs -f ik-llama   # follow LLM logs (or scraper)
-docker compose restart scraper    # restart one service
+docker compose logs -f ik-llama   # follow LLM logs
 docker compose down               # stop everything
 docker compose -f deploy/cloudflared/docker-compose.yml ps
 docker compose -f deploy/cloudflared/docker-compose.yml logs -f cloudflared
@@ -256,22 +224,18 @@ Quick health check (no key required):
 
 ```bash
 curl http://192.168.1.15:8090/health
-curl http://192.168.1.15:3000/health
 curl https://model.leads.run/health
 ```
 
 ## Repository layout
 
 ```
-docker-compose.yml   # the 2-service stack: scraper, ik-llama
+docker-compose.yml   # the LLM service (ik-llama)
 .env.example         # config template — copy to .env and fill in
-Dockerfile           # scraper image
 deploy/
   autoinstall/       # reusable zero-touch Ubuntu Server installer
   server/            # blank-NVMe → verified RTX 5090 production runbook/scripts
   vllm/              # RTX 5090 vLLM 0.29 image + explicit runtime settings
   cloudflared/       # stable public LLM ingress at model.leads.run
   systemd/           # persistent host tuning for the RTX 5090
-src/                 # scraper source (TypeScript) — see AGENTS.md
-Makefile             # scraper test/dev targets
 ```

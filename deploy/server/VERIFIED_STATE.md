@@ -88,13 +88,16 @@ Physical KV decreased about 5.8% in comparable warm starts (9.41 → 8.86 GiB).
 
 | Container | State | Restart count/policy | Access |
 |---|---|---|---|
-| `scraper` | running, healthy | 0 / `unless-stopped` | LAN `:3000` |
 | `ik-llama` | running, healthy | 0 / `unless-stopped` | LAN `:8090` |
 | `cloudflared` | running, healthy | 0 / `unless-stopped` | public `https://model.leads.run` |
 
 The last observed DHCP address was `192.168.1.15`. The tunnel exposes only
-`/health` and `/v1/*`; all other public paths terminate at a 404 rule. The
-scraper remains LAN-only.
+`/health` and `/v1/*`; all other public paths terminate at a 404 rule.
+
+**2026-09-26:** the unused `scraper` service was removed from the host and the
+repository (container, `on-prem-workhorse:latest` image, source and the
+`SCRAPER_API_KEY`/`PROXY_URL` settings). `ik-llama` was not recreated. Earlier
+entries below that mention scraper checks describe the verifier as it was then.
 
 The persistent application/tunnel secrets are:
 

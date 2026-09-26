@@ -30,7 +30,7 @@ nvidia-smi >/dev/null 2>&1 || {
 }
 
 [[ -f .env ]] || {
-  echo "Missing $repo_root/.env. Copy .env.example, add the two keys, and chmod 600 it." >&2
+  echo "Missing $repo_root/.env. Copy .env.example, add API_KEY, and chmod 600 it." >&2
   exit 1
 }
 chmod 600 .env
@@ -42,7 +42,6 @@ source ./.env
 set +a
 
 [[ -n ${API_KEY:-} ]] || { echo "API_KEY is empty in .env." >&2; exit 1; }
-[[ -n ${SCRAPER_API_KEY:-} ]] || { echo "SCRAPER_API_KEY is empty in .env." >&2; exit 1; }
 [[ ${MODEL_DIR:-} == /* ]] || { echo "MODEL_DIR must be an absolute path." >&2; exit 1; }
 [[ ${VLLM_CACHE_DIR:-} == /* ]] || { echo "VLLM_CACHE_DIR must be an absolute path." >&2; exit 1; }
 
@@ -77,9 +76,9 @@ if [[ ${PULL_BASE_IMAGES:-no} == yes ]]; then
   build_options+=(--pull)
 fi
 
-echo "Building the scraper and pinned vLLM image. This is safe to rerun after an interrupted SSH session."
-docker compose build "${build_options[@]}" scraper ik-llama
-docker compose up -d --remove-orphans scraper ik-llama
+echo "Building the pinned vLLM image. This is safe to rerun after an interrupted SSH session."
+docker compose build "${build_options[@]}" ik-llama
+docker compose up -d --remove-orphans ik-llama
 
 wait_for_health() {
   local container=$1
@@ -107,7 +106,6 @@ wait_for_health() {
   return 1
 }
 
-wait_for_health scraper 180
 wait_for_health ik-llama "${LLM_HEALTH_TIMEOUT:-900}"
 
 tunnel_id=ca500d27-9a93-440c-9023-e1729c249e1e
@@ -120,7 +118,7 @@ if [[ -f "$tunnel_credential" ]]; then
   docker compose -f deploy/cloudflared/docker-compose.yml up -d cloudflared
   wait_for_health cloudflared 180
 else
-  echo "Cloudflare tunnel credential is absent; private LAN services are running, but public ingress was skipped."
+  echo "Cloudflare tunnel credential is absent; the private LAN LLM is running, but public ingress was skipped."
   echo "Expected: $tunnel_credential"
 fi
 

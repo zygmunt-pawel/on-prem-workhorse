@@ -1,12 +1,7 @@
-node_modules/
-dist/
 *.log
 .env
 .DS_Store
-tests/
-test-results/
 benchmark-results/
 __pycache__/
 *.py[cod]
-test-saas-batch.sh
 deploy/cloudflared/*.json

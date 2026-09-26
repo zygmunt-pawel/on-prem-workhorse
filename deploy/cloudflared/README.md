@@ -9,7 +9,6 @@ Stable public ingress for the RTX 5090 LLM:
 
 Only `/v1/*` and `/health` are routed to the origin. vLLM continues to enforce
 `Authorization: Bearer <API_KEY>` on the OpenAI-compatible `/v1/*` endpoints.
-The scraper is not exposed by this tunnel.
 
 ## Secret provisioning
 

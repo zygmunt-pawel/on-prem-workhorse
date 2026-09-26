@@ -15,8 +15,8 @@ set -a
 # shellcheck disable=SC1091
 source ./.env
 set +a
-[[ -n ${API_KEY:-} && -n ${SCRAPER_API_KEY:-} ]] || {
-  echo "API keys are not configured in .env." >&2
+[[ -n ${API_KEY:-} ]] || {
+  echo "API_KEY is not configured in .env." >&2
   exit 1
 }
 
@@ -63,15 +63,13 @@ systemctl is-active --quiet nvidia-power-limit.service
 docker compose config --quiet
 docker compose ps
 
-for container in scraper ik-llama; do
-  state=$(docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}} restarts={{.RestartCount}} restart={{.HostConfig.RestartPolicy.Name}}' "$container")
-  echo "$container: $state"
-  [[ "$state" == running/healthy* ]] || exit 1
-  [[ "$state" == *'restarts=0 restart=unless-stopped' ]] || {
-    echo "$container has restarted or has the wrong restart policy." >&2
-    exit 1
-  }
-done
+llm_state=$(docker inspect --format '{{.State.Status}}/{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}} restarts={{.RestartCount}} restart={{.HostConfig.RestartPolicy.Name}}' ik-llama)
+echo "ik-llama: $llm_state"
+[[ "$llm_state" == running/healthy* ]] || exit 1
+[[ "$llm_state" == *'restarts=0 restart=unless-stopped' ]] || {
+  echo "ik-llama has restarted or has the wrong restart policy." >&2
+  exit 1
+}
 
 llm_runtime=$(docker inspect --format '{{.HostConfig.Runtime}}' ik-llama)
 llm_image=$(docker inspect --format '{{.Config.Image}}' ik-llama)
@@ -125,7 +123,6 @@ if "--speculative-config" in argv:
 print("OK: live vLLM 0.29.0 / MRV2 / Triton / CUTLASS / priority / prefix cache / MTP off")
 
 api_key = os.environ["API_KEY"]
-scraper_key = os.environ["SCRAPER_API_KEY"]
 user_agent = "on-prem-workhorse-verifier/1.0"
 
 
@@ -150,31 +147,6 @@ checks.append((
         headers={"Authorization": f"Bearer {api_key}"},
     ),
     200,
-))
-
-if os.environ.get("VERIFY_SCRAPER_FETCH", "yes") == "yes":
-    checks.append((
-        "scraper authenticated fetch",
-        *request(
-            "http://127.0.0.1:3000/scrape",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": scraper_key,
-            },
-            body={"url": "https://example.com", "maxChars": 2000},
-            timeout=90,
-        ),
-        200,
-    ))
-checks.append(("scraper health", *request("http://127.0.0.1:3000/health"), 200))
-checks.append((
-    "scraper rejects missing key",
-    *request(
-        "http://127.0.0.1:3000/scrape",
-        headers={"Content-Type": "application/json"},
-        body={"url": "https://example.com"},
-    ),
-    401,
 ))
 
 chat_status, chat_body = request(
